@@ -349,7 +349,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setParentalPin(pin: String) {
+    fun enableParental(pin: String) {
         store.parentalPin = pin
         parentalPin = pin
         adultUnlocked = false

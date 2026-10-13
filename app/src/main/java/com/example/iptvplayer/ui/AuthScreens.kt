@@ -201,7 +201,7 @@ fun SettingsScreen(vm: MainViewModel) {
             onDismiss = { pinAction = null },
         ) { pin ->
             if (pin.length < 4) "A senha precisa ter ao menos 4 números."
-            else { vm.setParentalPin(pin); pinAction = null; null }
+            else { vm.enableParental(pin); pinAction = null; null }
         }
         PinAction.UNLOCK -> PinDialog(
             title = "Liberar conteúdo adulto",
@@ -228,7 +228,7 @@ fun SettingsScreen(vm: MainViewModel) {
                 if (!vm.checkPin(pin)) "Senha incorreta." else { newPin = ""; null }
             } else {
                 if (pin.length < 4) "A senha precisa ter ao menos 4 números."
-                else { vm.setParentalPin(pin); pinAction = null; newPin = null; null }
+                else { vm.enableParental(pin); pinAction = null; newPin = null; null }
             }
         }
         null -> Unit
