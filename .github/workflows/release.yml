@@ -1,0 +1,62 @@
+name: Publicar versão
+
+# Para publicar uma versão nova: crie uma tag "v1.1.0" (ou superior) e envie (push).
+# O GitHub compila o APK e publica no repositório de releases; o app avisa os usuários.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versão (ex.: 1.1.0)'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      RELEASES_REPO: LucasOliver23/iptv-player-pro-releases
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Definir versão
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then V="${{ github.event.inputs.version }}"; else V="${GITHUB_REF_NAME#v}"; fi
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+
+      - name: Chave de assinatura
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Compilar APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon -PappVersionName="$VERSION" -PappVersionCode="${{ github.run_number }}"
+
+      - name: Publicar no repositório de releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+          cp "$APK" "IPTVPlayerPro-$VERSION.apk"
+          gh release create "v$VERSION" "IPTVPlayerPro-$VERSION.apk" \
+            --repo "$RELEASES_REPO" \
+            --title "IPTV Player Pro $VERSION" \
+            --notes "Melhorias e correções. Versão $VERSION."
