@@ -98,6 +98,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var liveFormat by mutableStateOf(store.liveFormat)
     var videoScale by mutableStateOf(store.videoScale)
         private set
+    var autoNext by mutableStateOf(store.autoNext)
+        private set
+    var autoNextSeconds by mutableStateOf(store.autoNextSeconds)
+        private set
+    var decoderMode by mutableStateOf(store.decoderMode)
+        private set
+    var bufferMode by mutableStateOf(store.bufferMode)
+        private set
+
+    // ---------- Controle parental ----------
+    /** Catálogo completo (sem filtro). `catalog` é a versão exibida. */
+    private var fullCatalog = Catalog()
+    var parentalPin by mutableStateOf(store.parentalPin)
+        private set
+    /** true = conteúdo adulto liberado nesta sessão (volta a bloquear ao fechar o app). */
+    var adultUnlocked by mutableStateOf(false)
+        private set
+    val parentalOn: Boolean get() = parentalPin.isNotEmpty()
+
+    /** Próximo episódio aguardando a contagem regressiva do player. */
+    var nextUp by mutableStateOf<PlayRequest?>(null)
+        private set
 
     init {
         if (store.hasCredentials) connect(store.server, store.user, store.password)
@@ -203,11 +225,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val acc = foundAcc!!
                 val cat = client.loadCatalog()
                 if (cat.isEmpty) throw IOException("Nenhum conteúdo encontrado nesta conta.")
-                val built = withContext(Dispatchers.Default) { buildHome(cat) }
+                fullCatalog = cat
+                val shown = filteredCatalog(cat)
+                val built = withContext(Dispatchers.Default) { buildHome(shown) }
 
                 api = client
                 account = acc
-                catalog = cat
+                catalog = shown
                 home = built
                 detailsCache.clear()
                 store.saveLogin(client.baseUrl, user.trim(), pass)
@@ -236,8 +260,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         store.clearPassword()
         api = null
         account = null
+        fullCatalog = Catalog()
         catalog = Catalog()
         home = HomeContent()
+        adultUnlocked = false
+        nextUp = null
         detailsCache.clear()
         detail = null
         playing = null
@@ -285,6 +312,67 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             rows.add(HomeRow("$prefix • $name", list.take(30)))
         }
         return rows
+    }
+
+    // ---------------------------------------------------------------------
+    // Controle parental
+    // ---------------------------------------------------------------------
+
+    private fun isAdultName(name: String): Boolean {
+        val n = name.searchNormalize()
+        return ADULT_REGEX.containsMatchIn(n) || n.contains("+18") || n.contains("18+")
+    }
+
+    private fun filteredCatalog(c: Catalog): Catalog {
+        if (!parentalOn || adultUnlocked) return c
+        return Catalog(
+            live = c.live.filter { !isAdultName(it.category) },
+            movies = c.movies.filter { !isAdultName(it.category) },
+            series = c.series.filter { !isAdultName(it.category) },
+            liveCategories = c.liveCategories.filter { !isAdultName(it) },
+            movieCategories = c.movieCategories.filter { !isAdultName(it) },
+            seriesCategories = c.seriesCategories.filter { !isAdultName(it) },
+        )
+    }
+
+    /** Reaplica o filtro ao catálogo já carregado (sem baixar nada de novo). */
+    private fun applyParental() {
+        if (fullCatalog.isEmpty) return
+        viewModelScope.launch {
+            val shown = filteredCatalog(fullCatalog)
+            val built = withContext(Dispatchers.Default) { buildHome(shown) }
+            catalog = shown
+            home = built
+            if (liveCategory?.let { it !in shown.liveCategories } == true) liveCategory = null
+            if (movieCategory?.let { it !in shown.movieCategories } == true) movieCategory = null
+            if (seriesCategory?.let { it !in shown.seriesCategories } == true) seriesCategory = null
+        }
+    }
+
+    fun setParentalPin(pin: String) {
+        store.parentalPin = pin
+        parentalPin = pin
+        adultUnlocked = false
+        applyParental()
+    }
+
+    fun clearParental() {
+        store.parentalPin = ""
+        parentalPin = ""
+        adultUnlocked = true
+        applyParental()
+    }
+
+    fun checkPin(pin: String): Boolean = parentalOn && pin == parentalPin
+
+    fun unlockAdult() {
+        adultUnlocked = true
+        applyParental()
+    }
+
+    fun lockAdult() {
+        adultUnlocked = false
+        applyParental()
     }
 
     // ---------------------------------------------------------------------
@@ -373,20 +461,55 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun play(request: PlayRequest) {
+        nextUp = null
         playing = request
     }
 
     fun playEpisode(series: MediaEntry, season: SeriesSeason, episode: SeriesEpisode) {
+        nextUp = null
         playing = episodeRequest(series, season, episode)
     }
 
     fun stopPlayback() {
+        nextUp = null
+        playing = null
+    }
+
+    /** Contagem regressiva acabou (ou o usuário tocou em "Assistir agora"). */
+    fun confirmNext() {
+        val next = nextUp ?: return
+        nextUp = null
+        playing = next
+    }
+
+    fun cancelNext() {
+        nextUp = null
         playing = null
     }
 
     fun updateVideoScale(value: Int) {
         videoScale = value
         store.videoScale = value
+    }
+
+    fun updateAutoNext(value: Boolean) {
+        autoNext = value
+        store.autoNext = value
+    }
+
+    fun updateAutoNextSeconds(value: Int) {
+        autoNextSeconds = value
+        store.autoNextSeconds = value
+    }
+
+    fun updateDecoderMode(value: Int) {
+        decoderMode = value
+        store.decoderMode = value
+    }
+
+    fun updateBufferMode(value: Int) {
+        bufferMode = value
+        store.bufferMode = value
     }
 
     fun updateLiveFormat(value: String) {
@@ -477,9 +600,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (request.kind == PlayKind.LIVE) return
         removeResume(request.key)
         viewModelScope.launch {
-            val next = if (request.kind == PlayKind.EPISODE) nextEpisode(request) else null
+            val next = if (request.kind == PlayKind.EPISODE && autoNext) nextEpisode(request) else null
             // Só mexe se o usuário ainda estiver nesse vídeo.
-            if (playing?.key == request.key) playing = next
+            if (playing?.key != request.key) return@launch
+            if (next != null) nextUp = next else playing = null
         }
     }
 
@@ -497,3 +621,4 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return episodeRequest(entry, next.first, next.second).copy(startPositionMs = 0L)
     }
 }
+private val ADULT_REGEX = Regex("\\b(adultos?|adult|xxx|porn\\w*|er[o]tic\\w*|sexy|sexo|sex|hentai|playboy)\\b")

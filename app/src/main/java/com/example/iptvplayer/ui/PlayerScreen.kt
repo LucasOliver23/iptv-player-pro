@@ -2,7 +2,11 @@ package com.example.iptvplayer.ui
 
 import android.app.Activity
 import android.content.Context
+import android.content.ActivityNotFoundException
 import android.content.ContextWrapper
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import android.content.pm.ActivityInfo
 import android.view.View
 import androidx.activity.compose.BackHandler
@@ -85,7 +89,11 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import com.example.iptvplayer.MainViewModel
@@ -118,7 +126,7 @@ fun PlayerScreen(vm: MainViewModel, request: PlayRequest) {
     }
 
     val url = remember(request.key) { vm.urlFor(request) }
-    val player = remember(request.key) { createPlayer(context, url, request.startPositionMs) }
+    val player = remember(request.key) { createPlayer(context, url, request.startPositionMs, vm.decoderMode, vm.bufferMode) }
     var errorText by remember(request.key) { mutableStateOf<String?>(null) }
     var overlayVisible by remember(request.key) { mutableStateOf(true) }
     var epg by remember(request.key) { mutableStateOf<List<EpgProgram>>(emptyList()) }
@@ -131,6 +139,22 @@ fun PlayerScreen(vm: MainViewModel, request: PlayRequest) {
     var showTracks by remember(request.key) { mutableStateOf(false) }
     var tracks by remember(request.key) { mutableStateOf(Tracks.EMPTY) }
     BackHandler(enabled = showTracks) { showTracks = false }
+    BackHandler(enabled = vm.nextUp != null) { vm.cancelNext() }
+
+    // Contagem regressiva do próximo episódio.
+    val nextUp = vm.nextUp
+    var countdown by remember(nextUp?.key) { mutableStateOf(vm.autoNextSeconds) }
+    val nextFocus = remember { FocusRequester() }
+    LaunchedEffect(nextUp?.key) {
+        if (nextUp != null) {
+            runCatching { nextFocus.requestFocus() }
+            while (countdown > 0) {
+                delay(1_000)
+                countdown--
+            }
+            vm.confirmNext()
+        }
+    }
 
     // Rotação forçada para Horizontal (Landscape) ao abrir o Player
     DisposableEffect(Unit) {
@@ -284,7 +308,7 @@ fun PlayerScreen(vm: MainViewModel, request: PlayRequest) {
                         }
                     }
                     true
-                } else if (errorText != null || event.type != KeyEventType.KeyDown || showTracks) {
+                } else if (errorText != null || vm.nextUp != null || event.type != KeyEventType.KeyDown || showTracks) {
                     false
                 } else if (buttonsFocused) {
                     // Foco nos botões do topo: setas movem entre eles; "baixo" volta ao vídeo.
@@ -417,6 +441,13 @@ fun PlayerScreen(vm: MainViewModel, request: PlayRequest) {
                     onClick = {
                         vm.updateVideoScale((vm.videoScale + 1) % 3)
                         viewRef.value?.showController()
+                    },
+                )
+                ActionButton(
+                    text = "Player externo",
+                    onClick = {
+                        player.pause()
+                        openExternal(context, url, request.title)
                     },
                 )
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -559,21 +590,101 @@ fun PlayerScreen(vm: MainViewModel, request: PlayRequest) {
                     modifier = Modifier.focusRequester(retryFocus),
                     primary = true,
                 )
+                if (isLive) {
+                    Spacer(Modifier.height(8.dp))
+                    val other = if (vm.liveFormat == "m3u8") "ts" else "m3u8"
+                    ActionButton(
+                        text = "Tentar em " + if (other == "m3u8") "HLS (m3u8)" else "TS",
+                        onClick = {
+                            vm.updateLiveFormat(other)
+                            errorText = null
+                            val newUrl = vm.urlFor(request.copy(extension = other))
+                            player.setMediaItem(MediaItem.fromUri(newUrl))
+                            player.prepare()
+                            player.play()
+                        },
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                ActionButton(
+                    text = "Abrir em player externo",
+                    onClick = { openExternal(context, url, request.title) },
+                )
+            }
+        }
+
+        // Próximo episódio: contagem regressiva.
+        val upcoming = vm.nextUp
+        if (upcoming != null && !vm.inPip) {
+            Column(
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(24.dp)
+                    .widthIn(max = 360.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xE6101014))
+                    .padding(16.dp),
+            ) {
+                Text("A seguir em ${countdown}s", color = Palette.Accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    upcoming.subtitle ?: upcoming.title,
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ActionButton(
+                        text = "Assistir agora",
+                        onClick = { vm.confirmNext() },
+                        modifier = Modifier.focusRequester(nextFocus),
+                        primary = true,
+                    )
+                    ActionButton(text = "Cancelar", onClick = { vm.cancelNext() })
+                }
             }
         }
     }
 }
 
 @OptIn(UnstableApi::class)
-private fun createPlayer(context: Context, url: String, startMs: Long): ExoPlayer {
+private fun isSoftwareCodec(info: MediaCodecInfo): Boolean =
+    if (android.os.Build.VERSION.SDK_INT >= 29) info.softwareOnly
+    else info.name.startsWith("OMX.google.") || info.name.startsWith("c2.android.")
+
+@OptIn(UnstableApi::class)
+private fun createPlayer(context: Context, url: String, startMs: Long, decoderMode: Int, bufferMode: Int): ExoPlayer {
     val http = DefaultHttpDataSource.Factory()
         .setUserAgent(USER_AGENT)
         .setAllowCrossProtocolRedirects(true)
         .setConnectTimeoutMs(15_000)
         .setReadTimeoutMs(20_000)
 
-    val player = ExoPlayer.Builder(context)
+    // Decodificador: 0 = automático, 1 = prefere hardware, 2 = prefere software (sempre com alternativa).
+    val selector = MediaCodecSelector { mimeType, secure, tunneling ->
+        val all = MediaCodecSelector.DEFAULT.getDecoderInfos(mimeType, secure, tunneling)
+        when (decoderMode) {
+            1 -> all.sortedBy { if (isSoftwareCodec(it)) 1 else 0 }.toMutableList()
+            2 -> all.sortedBy { if (isSoftwareCodec(it)) 0 else 1 }.toMutableList()
+            else -> all
+        }
+    }
+    val renderers = DefaultRenderersFactory(context)
+        .setEnableDecoderFallback(true)
+        .setMediaCodecSelector(selector)
+
+    // Buffer: 0 = normal, 1 = grande, 2 = máximo (mais estável em internet instável).
+    val loadControl = when (bufferMode) {
+        1 -> DefaultLoadControl.Builder().setBufferDurationsMs(30_000, 90_000, 4_000, 8_000).build()
+        2 -> DefaultLoadControl.Builder().setBufferDurationsMs(60_000, 180_000, 8_000, 15_000).build()
+        else -> DefaultLoadControl.Builder().build()
+    }
+
+    val player = ExoPlayer.Builder(context, renderers)
         .setMediaSourceFactory(DefaultMediaSourceFactory(context).setDataSourceFactory(http))
+        .setLoadControl(loadControl)
         .setAudioAttributes(AudioAttributes.DEFAULT, true)
         .setHandleAudioBecomingNoisy(true)
         .build()
@@ -583,6 +694,21 @@ private fun createPlayer(context: Context, url: String, startMs: Long): ExoPlaye
     player.prepare()
     player.playWhenReady = true
     return player
+}
+
+/** Abre o vídeo em outro app (VLC, MX Player…). O Android mostra a lista de apps instalados. */
+private fun openExternal(context: Context, url: String, title: String) {
+    try {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse(url), "video/*")
+            putExtra("title", title)
+        }
+        context.startActivity(Intent.createChooser(intent, "Abrir com…"))
+    } catch (e: ActivityNotFoundException) {
+        Toast.makeText(context, "Nenhum player externo instalado (ex.: VLC).", Toast.LENGTH_LONG).show()
+    } catch (e: Exception) {
+        Toast.makeText(context, "Não foi possível abrir o player externo.", Toast.LENGTH_LONG).show()
+    }
 }
 
 private fun seekBy(player: ExoPlayer, deltaMs: Long) {

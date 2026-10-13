@@ -52,6 +52,34 @@ class Store(context: Context) {
         get() = plain.getInt("video_scale", 0)
         set(value) { plain.edit().putInt("video_scale", value).apply() }
 
+    /** Reproduzir o próximo episódio automaticamente (com contagem regressiva). */
+    var autoNext: Boolean
+        get() = plain.getBoolean("auto_next", true)
+        set(value) { plain.edit().putBoolean("auto_next", value).apply() }
+
+    /** Segundos da contagem regressiva do próximo episódio. */
+    var autoNextSeconds: Int
+        get() = plain.getInt("auto_next_sec", 10)
+        set(value) { plain.edit().putInt("auto_next_sec", value).apply() }
+
+    /** Decodificador de vídeo: 0 = automático, 1 = preferir hardware, 2 = preferir software. */
+    var decoderMode: Int
+        get() = plain.getInt("decoder_mode", 0)
+        set(value) { plain.edit().putInt("decoder_mode", value).apply() }
+
+    /** Buffer: 0 = normal, 1 = grande, 2 = máximo. */
+    var bufferMode: Int
+        get() = plain.getInt("buffer_mode", 0)
+        set(value) { plain.edit().putInt("buffer_mode", value).apply() }
+
+    /** Senha do controle parental (vazia = desativado). Guardada no armazenamento seguro. */
+    var parentalPin: String
+        get() = secure.getString("parental_pin", "") ?: ""
+        set(value) {
+            if (value.isEmpty()) secure.edit().remove("parental_pin").apply()
+            else secure.edit().putString("parental_pin", value).apply()
+        }
+
     val hasCredentials: Boolean
         get() = server.isNotBlank() && user.isNotBlank() && password.isNotBlank()
 

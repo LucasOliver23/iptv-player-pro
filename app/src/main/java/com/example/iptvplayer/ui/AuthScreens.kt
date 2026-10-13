@@ -36,7 +36,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -189,6 +191,48 @@ fun SettingsScreen(vm: MainViewModel) {
     val catalog = vm.catalog
     val account = vm.account
     var transmissionOpen by remember { mutableStateOf(false) }
+    var pinAction by remember { mutableStateOf<PinAction?>(null) }
+    var newPin by remember { mutableStateOf<String?>(null) }
+
+    when (pinAction) {
+        PinAction.CREATE -> PinDialog(
+            title = "Criar senha",
+            message = "Escolha uma senha de 4 a 8 números.",
+            onDismiss = { pinAction = null },
+        ) { pin ->
+            if (pin.length < 4) "A senha precisa ter ao menos 4 números."
+            else { vm.setParentalPin(pin); pinAction = null; null }
+        }
+        PinAction.UNLOCK -> PinDialog(
+            title = "Liberar conteúdo adulto",
+            message = "Digite a senha do controle parental.",
+            onDismiss = { pinAction = null },
+        ) { pin ->
+            if (!vm.checkPin(pin)) "Senha incorreta."
+            else { vm.unlockAdult(); pinAction = null; null }
+        }
+        PinAction.DISABLE -> PinDialog(
+            title = "Desativar controle parental",
+            message = "Digite a senha atual.",
+            onDismiss = { pinAction = null },
+        ) { pin ->
+            if (!vm.checkPin(pin)) "Senha incorreta."
+            else { vm.clearParental(); pinAction = null; null }
+        }
+        PinAction.CHANGE -> PinDialog(
+            title = if (newPin == null) "Trocar senha" else "Nova senha",
+            message = if (newPin == null) "Digite a senha atual." else "Escolha a nova senha (4 a 8 números).",
+            onDismiss = { pinAction = null; newPin = null },
+        ) { pin ->
+            if (newPin == null) {
+                if (!vm.checkPin(pin)) "Senha incorreta." else { newPin = ""; null }
+            } else {
+                if (pin.length < 4) "A senha precisa ter ao menos 4 números."
+                else { vm.setParentalPin(pin); pinAction = null; newPin = null; null }
+            }
+        }
+        null -> Unit
+    }
 
     val expSec = account?.expiresAtSec?.takeIf { it > 0L }
     val expiryDate = expSec?.let {
@@ -332,6 +376,60 @@ fun SettingsScreen(vm: MainViewModel) {
             }
         }
 
+        // ---- Player (vale a partir do próximo vídeo aberto)
+        SettingsCard {
+            Text("Player", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text("Decodificador de vídeo", color = Palette.TextSecondary, fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Pill("Automático", vm.decoderMode == 0) { vm.updateDecoderMode(0) }
+                Pill("Hardware", vm.decoderMode == 1) { vm.updateDecoderMode(1) }
+                Pill("Software", vm.decoderMode == 2) { vm.updateDecoderMode(2) }
+            }
+            Text("Buffer (memória de vídeo)", color = Palette.TextSecondary, fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Pill("Normal", vm.bufferMode == 0) { vm.updateBufferMode(0) }
+                Pill("Grande", vm.bufferMode == 1) { vm.updateBufferMode(1) }
+                Pill("Máximo", vm.bufferMode == 2) { vm.updateBufferMode(2) }
+            }
+            Text(
+                "Se o vídeo travar ou ficar sem imagem, tente trocar o decodificador. Em internet instável, aumente o buffer. Vale a partir do próximo vídeo.",
+                color = Palette.TextMuted,
+                fontSize = 11.sp,
+            )
+            Text("Próximo episódio automático", color = Palette.TextSecondary, fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Pill("Desligado", !vm.autoNext) { vm.updateAutoNext(false) }
+                Pill("5s", vm.autoNext && vm.autoNextSeconds == 5) { vm.updateAutoNext(true); vm.updateAutoNextSeconds(5) }
+                Pill("10s", vm.autoNext && vm.autoNextSeconds == 10) { vm.updateAutoNext(true); vm.updateAutoNextSeconds(10) }
+                Pill("15s", vm.autoNext && vm.autoNextSeconds == 15) { vm.updateAutoNext(true); vm.updateAutoNextSeconds(15) }
+            }
+        }
+
+        // ---- Controle parental
+        SettingsCard {
+            Text("Controle parental", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text(
+                if (!vm.parentalOn) "Desativado. Ative para esconder categorias adultas com uma senha."
+                else if (vm.adultUnlocked) "Ativo • conteúdo adulto liberado nesta sessão."
+                else "Ativo • categorias adultas escondidas.",
+                color = Palette.TextSecondary,
+                fontSize = 12.sp,
+            )
+            if (!vm.parentalOn) {
+                Pill("Ativar com senha", false) { pinAction = PinAction.CREATE }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (vm.adultUnlocked) {
+                        Pill("Bloquear de novo", false) { vm.lockAdult() }
+                    } else {
+                        Pill("Liberar adulto", false) { pinAction = PinAction.UNLOCK }
+                    }
+                    Pill("Trocar senha", false) { pinAction = PinAction.CHANGE }
+                    Pill("Desativar", false) { pinAction = PinAction.DISABLE }
+                }
+            }
+        }
+
         val message = vm.errorMessage
         if (message != null) {
             Text(message, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
@@ -460,4 +558,39 @@ private fun StyledButton(
         Spacer(Modifier.width(10.dp))
         Text(text, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
     }
+}
+
+private enum class PinAction { CREATE, UNLOCK, CHANGE, DISABLE }
+
+/** Pede uma senha numérica. [onConfirm] devolve uma mensagem de erro, ou null se deu certo. */
+@Composable
+private fun PinDialog(
+    title: String,
+    message: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> String?,
+) {
+    var pin by remember(title) { mutableStateOf("") }
+    var error by remember(title) { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(message, fontSize = 13.sp)
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { v -> pin = v.filter { it.isDigit() }.take(8); error = null },
+                    singleLine = true,
+                    label = { Text("Senha") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { error = onConfirm(pin) }),
+                )
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+            }
+        },
+        confirmButton = { TextButton(onClick = { error = onConfirm(pin) }) { Text("OK") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
 }
