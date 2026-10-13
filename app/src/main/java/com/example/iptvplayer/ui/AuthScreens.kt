@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.Icon
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -44,6 +45,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -94,6 +96,11 @@ fun LoginScreen(vm: MainViewModel) {
     var user by remember { mutableStateOf(vm.store.user) }
     var pass by remember { mutableStateOf(vm.store.password) }
     val canSubmit = (fixedServers || server.isNotBlank()) && user.isNotBlank() && pass.isNotBlank() && !vm.loading
+
+    // Depois de pedir teste/assinatura, já deixa usuário e senha escolhidos no formulário.
+    LaunchedEffect(vm.loginPrefill) {
+        vm.loginPrefill?.let { (u, p) -> user = u; pass = p; vm.loginPrefill = null }
+    }
 
     fun submit() {
         if (canSubmit) vm.connect(server, user, pass)
@@ -167,6 +174,8 @@ fun LoginScreen(vm: MainViewModel) {
             if (vm.loading) {
                 LinearProgressIndicator(Modifier.fillMaxWidth(), color = Palette.Accent)
             }
+
+            AccessOffers { vm.accessRequest = it }
 
             Text(NOTICE, color = Palette.TextMuted, fontSize = 11.sp)
         }
@@ -439,6 +448,13 @@ fun SettingsScreen(vm: MainViewModel) {
         }
 
         // ---- Botões
+        StyledButton(
+            text = "Renovar assinatura (${Sales.PLAN_PRICE})",
+            icon = Icons.Default.ShoppingCart,
+            primary = false,
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { vm.accessRequest = AccessRequest.RENEW },
+        )
         StyledButton(
             text = if (vm.loading) "Atualizando…" else "Atualizar catálogo",
             icon = Icons.Default.Refresh,
