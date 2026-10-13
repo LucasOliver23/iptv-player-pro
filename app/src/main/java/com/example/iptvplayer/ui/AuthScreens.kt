@@ -116,7 +116,7 @@ fun LoginScreen(vm: MainViewModel) {
         ) {
             Text("IPTV PRO", color = Palette.Accent, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
             Text(
-                "Entre com os dados do seu serviço (Xtream Codes).",
+                "Bem-vindo! Acesse com o usuário e a senha da sua assinatura.",
                 color = Palette.TextSecondary,
                 fontSize = 14.sp,
             )
@@ -156,9 +156,6 @@ fun LoginScreen(vm: MainViewModel) {
                     modifier = Modifier.clickable { otherServer = !otherServer; if (!otherServer) server = "" },
                 )
             }
-
-            Text("Formato dos canais ao vivo", color = Palette.TextSecondary, fontSize = 12.sp)
-            LiveFormatPills(vm)
 
             val message = vm.errorMessage
             if (message != null) {
