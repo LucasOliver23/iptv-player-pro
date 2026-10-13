@@ -37,8 +37,12 @@ jobs:
       - name: Chave de assinatura
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
-          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          if [ -z "$KEYSTORE_B64" ]; then echo "Secret KEYSTORE_B64 está vazio neste repositório"; exit 1; fi
+          printf '%s' "$KEYSTORE_B64" | tr -d '\r\n\t ' | sed 's/^base64://' | base64 -d > "$RUNNER_TEMP/release.keystore" || { echo "KEYSTORE_B64 inválido: gere o texto de novo a partir do arquivo .jks"; exit 1; }
+          keytool -list -keystore "$RUNNER_TEMP/release.keystore" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" > /dev/null || { echo "Não abriu a chave: confira KEYSTORE_PASSWORD e KEY_ALIAS"; exit 1; }
           echo "KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
 
       - name: Compilar APK
