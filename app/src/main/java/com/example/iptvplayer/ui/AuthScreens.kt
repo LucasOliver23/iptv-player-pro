@@ -449,7 +449,7 @@ fun SettingsScreen(vm: MainViewModel) {
 
         // ---- Botões
         StyledButton(
-            text = "Renovar assinatura (${Sales.PLAN_PRICE})",
+            text = "Renovar assinatura",
             icon = Icons.Default.ShoppingCart,
             primary = false,
             modifier = Modifier.fillMaxWidth(),

@@ -81,6 +81,8 @@ private fun App(vm: MainViewModel) {
                 AccessRequestDialog(
                     kind = kind,
                     defaultUser = vm.store.user,
+                    // Na renovação, já começa com as telas que a conta tem hoje.
+                    defaultScreens = vm.account?.maxConnections?.toIntOrNull() ?: 1,
                     onDismiss = { vm.accessRequest = null },
                     onSent = { u, p -> vm.loginPrefill = u to p },
                 )

@@ -68,6 +68,15 @@ object Sales {
     const val PLAN_PRICE = "R$ 20,00"
     const val PLAN_DAYS = 30
 
+    /** Preço da 1ª tela e de cada tela a mais (em reais). */
+    const val BASE_PRICE = 20
+    const val EXTRA_SCREEN_PRICE = 10
+    const val MAX_SCREENS = 4
+
+    fun price(screens: Int): Int = BASE_PRICE + EXTRA_SCREEN_PRICE * (screens.coerceIn(1, MAX_SCREENS) - 1)
+    fun brl(value: Int): String = "R$ $value,00"
+    fun screensLabel(n: Int): String = if (n == 1) "1 tela" else "$n telas"
+
     const val TRIAL_HOURS = 8
 }
 
@@ -100,16 +109,21 @@ private fun copyPix(context: Context) {
 private fun cleanUser(v: String) = v.filter { it.isLetterOrDigit() || it == '.' || it == '_' }.take(20)
 private fun cleanPass(v: String) = v.filter { !it.isWhitespace() }.take(20)
 
-private fun buildMessage(kind: AccessRequest, name: String, user: String, pass: String): String = when (kind) {
-    AccessRequest.TRIAL ->
-        "Olá! Quero um *teste grátis de ${Sales.TRIAL_HOURS} horas* no IPTV Player Pro.\n\n" +
-            "Nome: $name\nUsuário: $user\nSenha: $pass"
-    AccessRequest.SUBSCRIBE ->
-        "Olá! Quero *assinar o ${Sales.PLAN_NAME.lowercase()} (${Sales.PLAN_PRICE})* do IPTV Player Pro.\n\n" +
-            "Nome: $name\nUsuário: $user\nSenha: $pass\n\nVou enviar o comprovante do Pix aqui."
-    AccessRequest.RENEW ->
-        "Olá! Quero *renovar* minha assinatura do IPTV Player Pro (${Sales.PLAN_PRICE}).\n\n" +
-            "Usuário: $user\n\nVou enviar o comprovante do Pix aqui."
+private fun buildMessage(kind: AccessRequest, name: String, user: String, pass: String, screens: Int): String {
+    val total = Sales.brl(Sales.price(screens))
+    val telas = Sales.screensLabel(screens)
+    return when (kind) {
+        AccessRequest.TRIAL ->
+            "Olá! Quero um *teste grátis de ${Sales.TRIAL_HOURS} horas* no IPTV Player Pro.\n\n" +
+                "Nome: $name\nUsuário: $user\nSenha: $pass"
+        AccessRequest.SUBSCRIBE ->
+            "Olá! Quero *assinar o ${Sales.PLAN_NAME.lowercase()}* do IPTV Player Pro.\n\n" +
+                "Nome: $name\nUsuário: $user\nSenha: $pass\nTelas: $telas\nValor: $total\n\n" +
+                "Vou enviar o comprovante do Pix aqui."
+        AccessRequest.RENEW ->
+            "Olá! Quero *renovar* minha assinatura do IPTV Player Pro.\n\n" +
+                "Usuário: $user\nTelas: $telas\nValor: $total\n\nVou enviar o comprovante do Pix aqui."
+    }
 }
 
 /**
@@ -121,6 +135,7 @@ private fun buildMessage(kind: AccessRequest, name: String, user: String, pass: 
 fun AccessRequestDialog(
     kind: AccessRequest,
     defaultUser: String,
+    defaultScreens: Int = 1,
     onDismiss: () -> Unit,
     onSent: (user: String, pass: String) -> Unit,
 ) {
@@ -130,6 +145,8 @@ fun AccessRequestDialog(
     var pass by remember { mutableStateOf("") }
     var sent by remember { mutableStateOf(false) }
     var fallback by remember { mutableStateOf<String?>(null) }
+    var screens by remember { mutableStateOf(defaultScreens.coerceIn(1, Sales.MAX_SCREENS)) }
+    val total = Sales.brl(Sales.price(screens))
 
     val needsAccount = kind != AccessRequest.RENEW
     val userOk = user.length >= 4
@@ -144,13 +161,13 @@ fun AccessRequestDialog(
     }
     val subtitle = when (kind) {
         AccessRequest.TRIAL -> "${Sales.TRIAL_HOURS} horas para testar, sem pagar nada."
-        AccessRequest.SUBSCRIBE -> "${Sales.PLAN_NAME} • ${Sales.PLAN_PRICE} por ${Sales.PLAN_DAYS} dias"
-        AccessRequest.RENEW -> "Mais ${Sales.PLAN_DAYS} dias por ${Sales.PLAN_PRICE}"
+        AccessRequest.SUBSCRIBE -> "${Sales.PLAN_NAME} • ${Sales.PLAN_DAYS} dias"
+        AccessRequest.RENEW -> "Mais ${Sales.PLAN_DAYS} dias de acesso"
     }
 
     fun send() {
         if (!canSend) return
-        val msg = buildMessage(kind, name.trim(), user, pass)
+        val msg = buildMessage(kind, name.trim(), user, pass, if (kind == AccessRequest.TRIAL) 1 else screens)
         if (openWhatsApp(context, msg)) {
             fallback = null
         } else {
@@ -223,7 +240,10 @@ fun AccessRequestDialog(
                     )
                 }
 
-                if (kind != AccessRequest.TRIAL) PixBox(onCopy = { copyPix(context) })
+                if (kind != AccessRequest.TRIAL) {
+                    ScreenPicker(screens) { screens = it }
+                    PixBox(total, onCopy = { copyPix(context) })
+                }
 
                 Text(
                     when (kind) {
@@ -286,7 +306,24 @@ fun AccessRequestDialog(
 }
 
 @Composable
-private fun PixBox(onCopy: () -> Unit) {
+private fun ScreenPicker(selected: Int, onSelect: (Int) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Quantas telas ao mesmo tempo?", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (n in 1..Sales.MAX_SCREENS) {
+                Pill(n.toString(), selected = n == selected, accent = true, modifier = Modifier.weight(1f)) { onSelect(n) }
+            }
+        }
+        Text(
+            "1 tela ${Sales.brl(Sales.BASE_PRICE)} • cada tela a mais + ${Sales.brl(Sales.EXTRA_SCREEN_PRICE)}",
+            color = Palette.TextMuted,
+            fontSize = 12.sp,
+        )
+    }
+}
+
+@Composable
+private fun PixBox(total: String, onCopy: () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -299,7 +336,7 @@ private fun PixBox(onCopy: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Valor", color = Palette.TextSecondary, fontSize = 12.sp)
-                Text(Sales.PLAN_PRICE, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                Text(total, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text("Chave (${Sales.PIX_TYPE.lowercase()})", color = Palette.TextSecondary, fontSize = 12.sp)
@@ -347,7 +384,7 @@ fun AccessOffers(onRequest: (AccessRequest) -> Unit) {
         ) { onRequest(AccessRequest.TRIAL) }
         OfferCard(
             title = "Assinar",
-            detail = "${Sales.PLAN_PRICE} / mês",
+            detail = "a partir de ${Sales.PLAN_PRICE} / mês",
             highlight = true,
         ) { onRequest(AccessRequest.SUBSCRIBE) }
         Text(
