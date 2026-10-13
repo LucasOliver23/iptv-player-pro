@@ -101,7 +101,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         if (store.hasCredentials) connect(store.server, store.user, store.password)
-        checkUpdate(manual = false)
     }
 
     // ---------------------------------------------------------------------
@@ -118,6 +117,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var updateMessage by mutableStateOf<String?>(null)
 
     val appVersion: String get() = Updater.currentVersion(getApplication<Application>())
+
+    // Precisa vir depois das propriedades acima (a ordem importa na inicialização).
+    init {
+        checkUpdate(manual = false)
+    }
 
     fun checkUpdate(manual: Boolean) {
         if (updateChecking || updateProgress >= 0f) return

@@ -55,19 +55,6 @@ class Store(context: Context) {
     val hasCredentials: Boolean
         get() = server.isNotBlank() && user.isNotBlank() && password.isNotBlank()
 
-    companion object {
-        /**
-         * Servidores do seu painel, tentados em ordem (o primeiro que responder é usado).
-         * Preenchidos = a tela de login pede só usuário e senha.
-         * Deixe a lista vazia para voltar a pedir o endereço na tela de login.
-         */
-        val DEFAULT_SERVERS: List<String> = listOf(
-            "http://cdntp.sbs",
-            "http://tlfp.fun:80",
-            "http://telefunplay.xyz:80",
-        )
-    }
-
     fun saveLogin(server: String, user: String, password: String) {
         this.server = server
         this.user = user
@@ -140,7 +127,18 @@ class Store(context: Context) {
         plain.edit().putString("resume", arr.toString()).apply()
     }
 
-    private companion object {
+    companion object {
+        /**
+         * Servidores do seu painel, tentados em ordem (o primeiro que responder é usado).
+         * Preenchidos = a tela de login pede só usuário e senha.
+         * Deixe a lista vazia para voltar a pedir o endereço na tela de login.
+         */
+        val DEFAULT_SERVERS: List<String> = listOf(
+            "http://cdntp.sbs",
+            "http://tlfp.fun:80",
+            "http://telefunplay.xyz:80",
+        )
+
         fun openSecure(context: Context): SharedPreferences = try {
             val key = MasterKey.Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
