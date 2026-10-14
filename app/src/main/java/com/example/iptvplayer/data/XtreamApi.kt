@@ -99,9 +99,6 @@ class XtreamApi(server: String, user: String, pass: String) {
             ?: throw IOException("Resposta inválida do servidor. Confira a URL e a porta.")
         if (info.str("auth") != "1") throw IOException("Usuário ou senha inválidos.")
         val status = info.str("status") ?: "Active"
-        if (status.equals("Expired", ignoreCase = true)) {
-            throw IOException("Sua assinatura venceu. Toque em \"Assinatura vencida? Renovar\" abaixo.")
-        }
         if (!status.equals("Active", ignoreCase = true)) throw IOException("Conta com status: $status.")
         AccountInfo(
             status = status,

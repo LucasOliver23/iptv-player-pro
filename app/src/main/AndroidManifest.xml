@@ -8,8 +8,9 @@
 
     <application
         android:theme="@style/Theme.IPTVPlayer"
-        android:label="IPTV Player Pro"
-        android:icon="@drawable/ic_launcher"
+        android:label="Vortex Play"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:banner="@drawable/banner"
         android:usesCleartextTraffic="true"
         android:largeHeap="true"

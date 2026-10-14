@@ -240,7 +240,7 @@ fun TopNav(current: NavTab, onSelect: (NavTab) -> Unit, onSettings: () -> Unit) 
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            "IPTV PRO",
+            "VORTEX PLAY",
             color = Palette.Accent,
             fontWeight = FontWeight.ExtraBold,
             fontSize = 20.sp,

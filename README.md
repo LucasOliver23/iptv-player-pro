@@ -1,4 +1,4 @@
-# IPTV Player Pro 4.0 — base estilo streaming
+# Vortex Play (antigo IPTV Player Pro) — base estilo streaming
 
 Reescrita do projeto `IPTVPlayerPro3` (Xtream Codes + Media3) com interface no estilo Netflix:
 destaque (hero) no topo, fileiras horizontais de capas, "Continuar assistindo", "Minha lista",

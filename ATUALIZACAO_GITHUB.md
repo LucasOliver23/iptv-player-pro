@@ -51,6 +51,6 @@ Mande o link do APK da primeira release (`.../releases/latest`). Depois disso, t
 Quem já tem o app instalado (feito pelo Android Studio) precisa **desinstalar uma vez**, porque a assinatura é diferente.
 
 ## Observações
-- No primeiro uso o Android pede para permitir "instalar apps desconhecidos" para o IPTV Player Pro.
+- No primeiro uso o Android pede para permitir "instalar apps desconhecidos" para o Vortex Play.
 - A versão do app (`versionName`) agora vem da tag. Compilando pelo Android Studio fica 1.0.
 - O workflow está em `.github/workflows/release.yml`. Se o seu repositório do GitHub começa na pasta de cima, mova a pasta `.github` para a raiz dele.
