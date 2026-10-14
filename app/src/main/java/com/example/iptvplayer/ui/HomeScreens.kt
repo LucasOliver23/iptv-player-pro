@@ -336,7 +336,7 @@ fun HomeScreen(vm: MainViewModel) {
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 96.dp),
     ) {
-        item { ExpiryBanner(vm.account) }
+        item { ExpiryBanner(vm.account) { vm.accessRequest = AccessRequest.RENEW } }
         val hero = home.hero
         if (hero != null) item { HeroBanner(vm, hero) }
         if (vm.resume.isNotEmpty()) item { ContinueRow(vm) }
@@ -477,7 +477,7 @@ private fun HeroCard(vm: MainViewModel, entry: MediaEntry, details: Details?, in
 // Aviso de vencimento da assinatura (topo do Início)
 // ---------------------------------------------------------------------------
 @Composable
-private fun ExpiryBanner(account: AccountInfo?) {
+private fun ExpiryBanner(account: AccountInfo?, onRenew: () -> Unit) {
     val expSec = account?.expiresAtSec?.takeIf { it > 0L } ?: return
     val expMs = expSec * 1000L
     val leftMs = expMs - System.currentTimeMillis()
@@ -495,11 +495,16 @@ private fun ExpiryBanner(account: AccountInfo?) {
         else -> { text = "Vence em $days dias"; color = Color(0xFF46D369) }
     }
 
+    // Faltando 5 dias ou menos, o aviso vira um botão "Renovar".
+    val showRenew = days <= 5L
+    val shape = RoundedCornerShape(50)
     Row(
         Modifier
             .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(50))
+            .then(if (showRenew) Modifier.focusRing(shape, 2.dp) else Modifier)
+            .clip(shape)
             .background(Palette.Surface)
+            .then(if (showRenew) Modifier.clickable(onClick = onRenew) else Modifier)
             .padding(horizontal = 12.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -507,6 +512,19 @@ private fun ExpiryBanner(account: AccountInfo?) {
         Spacer(Modifier.width(7.dp))
         Text(text, color = color, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         Text("  •  $date", color = Palette.TextSecondary, fontSize = 12.sp)
+        if (showRenew) {
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "Renovar",
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clip(shape)
+                    .background(Palette.Accent)
+                    .padding(horizontal = 10.dp, vertical = 2.dp),
+            )
+        }
     }
 }
 

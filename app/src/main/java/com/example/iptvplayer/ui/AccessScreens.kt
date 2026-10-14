@@ -114,14 +114,14 @@ private fun buildMessage(kind: AccessRequest, name: String, user: String, pass: 
     val telas = Sales.screensLabel(screens)
     return when (kind) {
         AccessRequest.TRIAL ->
-            "Olá! Quero um *teste grátis de ${Sales.TRIAL_HOURS} horas* no IPTV Player Pro.\n\n" +
+            "Olá! Quero um *teste grátis de ${Sales.TRIAL_HOURS} horas* no Vortex Play.\n\n" +
                 "Nome: $name\nUsuário: $user\nSenha: $pass"
         AccessRequest.SUBSCRIBE ->
-            "Olá! Quero *assinar o ${Sales.PLAN_NAME.lowercase()}* do IPTV Player Pro.\n\n" +
+            "Olá! Quero *assinar o ${Sales.PLAN_NAME.lowercase()}* do Vortex Play.\n\n" +
                 "Nome: $name\nUsuário: $user\nSenha: $pass\nTelas: $telas\nValor: $total\n\n" +
                 "Vou enviar o comprovante do Pix aqui."
         AccessRequest.RENEW ->
-            "Olá! Quero *renovar* minha assinatura do IPTV Player Pro.\n\n" +
+            "Olá! Quero *renovar* minha assinatura do Vortex Play.\n\n" +
                 "Usuário: $user\nTelas: $telas\nValor: $total\n\nVou enviar o comprovante do Pix aqui."
     }
 }

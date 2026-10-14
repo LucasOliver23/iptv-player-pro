@@ -415,46 +415,36 @@ fun PlayerScreen(vm: MainViewModel, request: PlayRequest) {
                     .align(Alignment.TopEnd)
                     .padding(16.dp)
                     .onFocusChanged { buttonsFocused = it.hasFocus },
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                ActionButton(
-                    text = "Áudio e legendas",
-                    onClick = {
-                        buttonsFocused = false
-                        showTracks = true
-                    },
+                PlayerIconButton(
+                    icon = PlayerIcons.Subtitles,
+                    description = "Áudio e legendas",
                     modifier = Modifier.focusRequester(buttonsFocus),
-                    icon = Icons.Default.Settings,
-                )
-                ActionButton(
-                    text = "Bloquear tela",
-                    onClick = {
-                        buttonsFocused = false
-                        locked = true
-                        viewRef.value?.hideController()
-                        runCatching { boxFocus.requestFocus() }
-                    },
-                    icon = Icons.Default.Lock,
-                )
-                ActionButton(
-                    text = "Tela: " + scaleLabel(vm.videoScale),
-                    onClick = {
-                        vm.updateVideoScale((vm.videoScale + 1) % 3)
-                        viewRef.value?.showController()
-                    },
-                )
-                ActionButton(
-                    text = "Player externo",
-                    onClick = {
-                        player.pause()
-                        openExternal(context, url, request.title)
-                    },
-                )
+                ) {
+                    buttonsFocused = false
+                    showTracks = true
+                }
+                PlayerIconButton(icon = PlayerIcons.AspectRatio, description = "Tamanho da tela") {
+                    val next = (vm.videoScale + 1) % 3
+                    vm.updateVideoScale(next)
+                    Toast.makeText(context, "Tela: " + scaleLabel(next), Toast.LENGTH_SHORT).show()
+                    viewRef.value?.showController()
+                }
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    ActionButton(
-                        text = "Janela flutuante",
-                        onClick = { (context.findActivity() as? com.example.iptvplayer.MainActivity)?.enterPip() },
-                    )
+                    PlayerIconButton(icon = PlayerIcons.Pip, description = "Janela flutuante") {
+                        (context.findActivity() as? com.example.iptvplayer.MainActivity)?.enterPip()
+                    }
+                }
+                PlayerIconButton(icon = PlayerIcons.OpenExternal, description = "Player externo") {
+                    player.pause()
+                    openExternal(context, url, request.title)
+                }
+                PlayerIconButton(icon = Icons.Default.Lock, description = "Bloquear tela") {
+                    buttonsFocused = false
+                    locked = true
+                    viewRef.value?.hideController()
+                    runCatching { boxFocus.requestFocus() }
                 }
             }
         }
@@ -914,4 +904,61 @@ private fun PanelRow(
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+
+// ---------------------------------------------------------------------------
+// Botões redondos só com ícone (canto superior do player)
+// ---------------------------------------------------------------------------
+@Composable
+private fun PlayerIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val shape = androidx.compose.foundation.shape.CircleShape
+    Box(
+        modifier
+            .focusRing(shape, 2.dp)
+            .size(42.dp)
+            .clip(shape)
+            .background(Color(0x8C000000))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = description, tint = Color.White, modifier = Modifier.size(22.dp))
+    }
+}
+
+/** Ícones do Material Design (Apache 2.0) desenhados aqui para não depender da biblioteca grande de ícones. */
+private object PlayerIcons {
+    private fun icon(name: String, path: String) =
+        androidx.compose.ui.graphics.vector.ImageVector.Builder(
+            name = name,
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).addPath(
+            pathData = androidx.compose.ui.graphics.vector.addPathNodes(path),
+            fill = androidx.compose.ui.graphics.SolidColor(Color.White),
+        ).build()
+
+    val Subtitles = icon(
+        "Subtitles",
+        "M20,4H4c-1.1,0 -2,0.9 -2,2v12c0,1.1 0.9,2 2,2h16c1.1,0 2,-0.9 2,-2V6c0,-1.1 -0.9,-2 -2,-2zM4,12h4v2H4v-2zM14,18H4v-2h10v2zM20,18h-4v-2h4v2zM20,14H10v-2h10v2z",
+    )
+    val AspectRatio = icon(
+        "AspectRatio",
+        "M19,12h-2v3h-3v2h5v-5zM7,9h3L10,7L5,7v5h2L7,9zM21,3L3,3c-1.1,0 -2,0.9 -2,2v14c0,1.1 0.9,2 2,2h18c1.1,0 2,-0.9 2,-2L23,5c0,-1.1 -0.9,-2 -2,-2zM21,19.01L3,19.01L3,4.99h18v14.02z",
+    )
+    val Pip = icon(
+        "PictureInPicture",
+        "M19,11h-8v6h8v-6zM23,19L23,4.98C23,3.88 22.1,3 21,3L3,3c-1.1,0 -2,0.88 -2,1.98L1,19c0,1.1 0.9,2 2,2h18c1.1,0 2,-0.9 2,-2zM21,19.02L3,19.02L3,4.97h18v14.05z",
+    )
+    val OpenExternal = icon(
+        "OpenInNew",
+        "M19,19H5V5h7V3H5c-1.11,0 -2,0.9 -2,2v14c0,1.1 0.89,2 2,2h14c1.1,0 2,-0.9 2,-2v-7h-2v7zM14,3v2h3.59l-9.83,9.83 1.41,1.41L19,6.41V10h2V3h-7z",
+    )
 }

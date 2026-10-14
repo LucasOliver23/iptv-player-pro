@@ -60,7 +60,10 @@ jobs:
         run: |
           APK=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
           cp "$APK" "IPTVPlayerPro-$VERSION.apk"
-          gh release create "v$VERSION" "IPTVPlayerPro-$VERSION.apk" \
+          # Cópia com nome fixo: o link do QR Code do anúncio sempre baixa a última versão
+          # https://github.com/LucasOliver23/iptv-player-pro-releases/releases/latest/download/IPTVPlayerPro.apk
+          cp "$APK" "IPTVPlayerPro.apk"
+          gh release create "v$VERSION" "IPTVPlayerPro-$VERSION.apk" "IPTVPlayerPro.apk" \
             --repo "$RELEASES_REPO" \
             --title "Vortex Play $VERSION" \
             --notes "Melhorias e correções. Versão $VERSION."
