@@ -77,7 +77,7 @@ object Sales {
     fun brl(value: Int): String = "R$ $value,00"
     fun screensLabel(n: Int): String = if (n == 1) "1 tela" else "$n telas"
 
-    const val TRIAL_HOURS = 8
+    const val TRIAL_HOURS = 5
 }
 
 /** Tipo de pedido enviado pelo WhatsApp. */
