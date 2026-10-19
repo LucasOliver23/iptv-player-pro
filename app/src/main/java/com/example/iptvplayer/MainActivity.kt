@@ -13,6 +13,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.iptvplayer.ui.AccessRequestDialog
 import com.example.iptvplayer.ui.DetailsScreen
 import com.example.iptvplayer.ui.GuideScreen
 import com.example.iptvplayer.ui.HomeShell
@@ -77,6 +78,16 @@ private fun App(vm: MainViewModel) {
                 detail != null -> DetailsScreen(vm, detail)
                 vm.showGuide -> GuideScreen(vm)
                 else -> HomeShell(vm)
+            }
+            vm.accessRequest?.let { kind ->
+                AccessRequestDialog(
+                    kind = kind,
+                    defaultUser = vm.store.user,
+                    // Na renovação, já começa com as telas que a conta tem hoje.
+                    defaultScreens = vm.account?.maxConnections?.toIntOrNull() ?: 1,
+                    onDismiss = { vm.accessRequest = null },
+                    onSent = { u, p -> vm.loginPrefill = u to p },
+                )
             }
             UpdateDialog(vm)
         }

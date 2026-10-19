@@ -71,6 +71,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var showLogin by mutableStateOf(!store.hasSource)
     var showSettings by mutableStateOf(false)
 
+    /** Pedido aberto (teste / assinar / renovar) e usuário+senha para pré-preencher o login. */
+    var accessRequest by mutableStateOf<com.example.iptvplayer.ui.AccessRequest?>(null)
+    var loginPrefill by mutableStateOf<Pair<String, String>?>(null)
+
     // ---------- Navegação ----------
     var tab by mutableStateOf(NavTab.HOME)
     var detail by mutableStateOf<MediaEntry?>(null)

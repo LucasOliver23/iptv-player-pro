@@ -114,6 +114,9 @@ class XtreamApi(server: String, user: String, pass: String) {
             serverTimeZone = TimeZone.getTimeZone(tz)
         }
         val status = info.str("status") ?: "Active"
+        if (status.equals("Expired", ignoreCase = true)) {
+            throw IOException("Sua assinatura venceu. Toque em \"Assinatura vencida? Renovar\" abaixo.")
+        }
         if (!status.equals("Active", ignoreCase = true)) throw IOException("Conta com status: $status.")
         AccountInfo(
             status = status,

@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.Icon
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -44,6 +45,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -101,6 +103,11 @@ fun LoginScreen(vm: MainViewModel) {
         (fixedServers || server.isNotBlank()) && user.isNotBlank() && pass.isNotBlank() && !vm.loading
     }
 
+    // Depois de pedir teste/assinatura, já deixa usuário e senha escolhidos no formulário.
+    LaunchedEffect(vm.loginPrefill) {
+        vm.loginPrefill?.let { (u, p) -> user = u; pass = p; vm.loginPrefill = null }
+    }
+
     fun submit() {
         if (!canSubmit) return
         if (useM3u) vm.connectM3u(m3uLink) else vm.connect(server, user, pass)
@@ -116,7 +123,7 @@ fun LoginScreen(vm: MainViewModel) {
         ) {
             Text("VORTEX PLAY", color = Palette.Accent, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
             Text(
-                if (useM3u) "Cole o link da sua lista M3U/M3U8." else "Entre com os dados do seu serviço (Xtream Codes).",
+                if (useM3u) "Cole o link da sua lista M3U/M3U8." else "Bem-vindo! Acesse com o usuário e a senha da sua assinatura.",
                 color = Palette.TextSecondary,
                 fontSize = 14.sp,
             )
@@ -170,11 +177,6 @@ fun LoginScreen(vm: MainViewModel) {
                 )
             }
 
-            if (!useM3u) {
-                Text("Formato dos canais ao vivo", color = Palette.TextSecondary, fontSize = 12.sp)
-                LiveFormatPills(vm)
-            }
-
             val message = vm.errorMessage
             if (message != null) {
                 Text(message, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
@@ -189,6 +191,8 @@ fun LoginScreen(vm: MainViewModel) {
             if (vm.loading) {
                 LinearProgressIndicator(Modifier.fillMaxWidth(), color = Palette.Accent)
             }
+
+            AccessOffers { vm.accessRequest = it }
 
             Text(NOTICE, color = Palette.TextMuted, fontSize = 11.sp)
         }
@@ -478,6 +482,13 @@ fun SettingsScreen(vm: MainViewModel) {
         }
 
         // ---- Botões
+        StyledButton(
+            text = "Renovar assinatura",
+            icon = Icons.Default.ShoppingCart,
+            primary = false,
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { vm.accessRequest = AccessRequest.RENEW },
+        )
         StyledButton(
             text = if (vm.loading) "Atualizando…" else "Atualizar catálogo",
             icon = Icons.Default.Refresh,

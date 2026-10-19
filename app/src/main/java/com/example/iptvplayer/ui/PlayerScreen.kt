@@ -276,6 +276,19 @@ fun PlayerScreen(vm: MainViewModel, request: PlayRequest) {
         if (errorText != null) runCatching { retryFocus.requestFocus() }
     }
 
+    // Gestos de brilho (lado esquerdo) e volume (lado direito) nos filmes e séries.
+    var gesture by remember { mutableStateOf<Pair<Int, Float>?>(null) } // 0 = brilho, 1 = volume
+    var gestureDragging by remember { mutableStateOf(false) }
+    var gestureTick by remember { mutableStateOf(0) }
+    LaunchedEffect(gestureTick) {
+        delay(900)
+        if (!gestureDragging) gesture = null
+    }
+    DisposableEffect(Unit) {
+        // Ao sair do player, o brilho volta ao do sistema.
+        onDispose { setBrightness(context.findActivity(), -1f) }
+    }
+
     // Dica de como trocar de canal (aparece uma vez por sessão).
     var hintVisible by remember(request.key) { mutableStateOf(false) }
     LaunchedEffect(request.key) {
@@ -313,6 +326,53 @@ fun PlayerScreen(vm: MainViewModel, request: PlayRequest) {
                         if (abs(total.y) > threshold && abs(total.y) > abs(total.x) * 1.5f) {
                             // Dedo sobe = próximo canal; dedo desce = canal anterior.
                             vm.zapChannel(if (total.y < 0f) 1 else -1)
+                        }
+                    }
+                }
+            }
+            // Filmes/séries: deslizar para cima/baixo à esquerda = brilho, à direita = volume.
+            .pointerInput(isLive, locked) {
+                if (isLive || locked) return@pointerInput
+                val activity = context.findActivity()
+                val audio = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+                val stream = android.media.AudioManager.STREAM_MUSIC
+                awaitPointerEventScope {
+                    while (true) {
+                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        // Ignora toques na barra de progresso (embaixo) e na borda de cima.
+                        if (down.position.y > size.height - 90.dp.toPx() || down.position.y < 40.dp.toPx()) continue
+                        val leftSide = down.position.x < size.width / 2f
+                        val slop = 18.dp.toPx()
+                        val maxVol = audio.getStreamMaxVolume(stream).coerceAtLeast(1)
+                        var total = Offset.Zero
+                        var adjusting = false
+                        var startValue = 0f
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            total += change.positionChange()
+                            if (!adjusting && abs(total.y) > slop && abs(total.y) > abs(total.x) * 1.5f) {
+                                adjusting = true
+                                gestureDragging = true
+                                startValue = if (leftSide) currentBrightness(activity)
+                                else audio.getStreamVolume(stream).toFloat() / maxVol
+                                total = Offset.Zero
+                            }
+                            if (adjusting) {
+                                change.consume()
+                                val v = (startValue - total.y / (size.height * 0.75f)).coerceIn(0f, 1f)
+                                if (leftSide) {
+                                    setBrightness(activity, v)
+                                } else {
+                                    runCatching { audio.setStreamVolume(stream, Math.round(v * maxVol), 0) }
+                                }
+                                gesture = (if (leftSide) 0 else 1) to v
+                            }
+                        }
+                        if (adjusting) {
+                            gestureDragging = false
+                            gestureTick++
                         }
                     }
                 }
@@ -436,55 +496,42 @@ fun PlayerScreen(vm: MainViewModel, request: PlayRequest) {
                     .align(Alignment.TopEnd)
                     .padding(16.dp)
                     .onFocusChanged { buttonsFocused = it.hasFocus },
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                ActionButton(
-                    text = "Áudio e legendas",
-                    onClick = {
-                        buttonsFocused = false
-                        showTracks = true
-                    },
+                PlayerIconButton(
+                    icon = PlayerIcons.Subtitles,
+                    description = "Áudio e legendas",
                     modifier = Modifier.focusRequester(buttonsFocus),
-                    icon = Icons.Default.Settings,
-                )
-                ActionButton(
-                    text = "Bloquear tela",
-                    onClick = {
-                        buttonsFocused = false
-                        locked = true
-                        viewRef.value?.hideController()
-                        runCatching { boxFocus.requestFocus() }
-                    },
-                    icon = Icons.Default.Lock,
-                )
-                ActionButton(
-                    text = "Tela: " + scaleLabel(vm.videoScale),
-                    onClick = {
-                        vm.updateVideoScale((vm.videoScale + 1) % 3)
-                        viewRef.value?.showController()
-                    },
-                )
-                if (isEpisode) {
-                    ActionButton(
-                        text = "Pular 85s",
-                        onClick = {
-                            seekBy(player, 85_000L)
-                            viewRef.value?.showController()
-                        },
-                    )
+                ) {
+                    buttonsFocused = false
+                    showTracks = true
                 }
-                ActionButton(
-                    text = "Player externo",
-                    onClick = {
-                        player.pause()
-                        openExternal(context, url, request.title)
-                    },
-                )
+                PlayerIconButton(icon = PlayerIcons.AspectRatio, description = "Tamanho da tela") {
+                    val next = (vm.videoScale + 1) % 3
+                    vm.updateVideoScale(next)
+                    Toast.makeText(context, "Tela: " + scaleLabel(next), Toast.LENGTH_SHORT).show()
+                    viewRef.value?.showController()
+                }
+                if (isEpisode) {
+                    PlayerTextButton("Pular 85s") {
+                        seekBy(player, 85_000L)
+                        viewRef.value?.showController()
+                    }
+                }
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    ActionButton(
-                        text = "Janela flutuante",
-                        onClick = { (context.findActivity() as? com.example.iptvplayer.MainActivity)?.enterPip() },
-                    )
+                    PlayerIconButton(icon = PlayerIcons.Pip, description = "Janela flutuante") {
+                        (context.findActivity() as? com.example.iptvplayer.MainActivity)?.enterPip()
+                    }
+                }
+                PlayerIconButton(icon = PlayerIcons.OpenExternal, description = "Player externo") {
+                    player.pause()
+                    openExternal(context, url, request.title)
+                }
+                PlayerIconButton(icon = Icons.Default.Lock, description = "Bloquear tela") {
+                    buttonsFocused = false
+                    locked = true
+                    viewRef.value?.hideController()
+                    runCatching { boxFocus.requestFocus() }
                 }
             }
         }
@@ -521,10 +568,10 @@ fun PlayerScreen(vm: MainViewModel, request: PlayRequest) {
                 Modifier
                     .align(Alignment.TopStart)
                     .padding(16.dp)
-                    .widthIn(max = 460.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0x99000000))
-                    .padding(12.dp),
+                    .widthIn(max = if (isLive) 360.dp else 240.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0x66000000))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
             ) {
                 if (isLive) {
                     Text("AO VIVO", color = Palette.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -532,17 +579,18 @@ fun PlayerScreen(vm: MainViewModel, request: PlayRequest) {
                 Text(
                     request.title,
                     color = Color.White,
-                    fontSize = 16.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 val subtitle = request.subtitle
-                if (!subtitle.isNullOrBlank()) {
+                // Esconde subtítulo vazio ou "0" (ano não informado pelo servidor).
+                if (!subtitle.isNullOrBlank() && subtitle.trim() != "0") {
                     Text(
                         subtitle,
                         color = Palette.TextSecondary,
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -551,6 +599,18 @@ fun PlayerScreen(vm: MainViewModel, request: PlayRequest) {
                     Spacer(Modifier.height(8.dp))
                     EpgList(epg, maxItems = 3, channelName = request.title, streamKey = request.refId)
                 }
+            }
+        }
+
+        gesture?.let { (kind, value) ->
+            if (!vm.inPip && !locked) {
+                GestureIndicator(
+                    kind = kind,
+                    value = value,
+                    modifier = Modifier
+                        .align(if (kind == 0) Alignment.CenterStart else Alignment.CenterEnd)
+                        .padding(horizontal = 56.dp),
+                )
             }
         }
 
@@ -980,4 +1040,142 @@ private fun PanelRow(
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+
+// ---------------------------------------------------------------------------
+// Botões redondos só com ícone (canto superior do player)
+// ---------------------------------------------------------------------------
+@Composable
+private fun PlayerIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val shape = androidx.compose.foundation.shape.CircleShape
+    Box(
+        modifier
+            .focusRing(shape, 2.dp)
+            .size(42.dp)
+            .clip(shape)
+            .background(Color(0x8C000000))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = description, tint = Color.White, modifier = Modifier.size(22.dp))
+    }
+}
+
+/** Botão compacto com texto (mesmo estilo dos ícones do player). */
+@Composable
+private fun PlayerTextButton(text: String, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(50)
+    Box(
+        Modifier
+            .focusRing(shape, 2.dp)
+            .height(42.dp)
+            .clip(shape)
+            .background(Color(0x8C000000))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+    }
+}
+
+/** Brilho da janela do app (0..1). -1 devolve o controle ao brilho do sistema. */
+private fun setBrightness(activity: Activity?, value: Float) {
+    val window = activity?.window ?: return
+    val lp = window.attributes
+    lp.screenBrightness = if (value < 0f) android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE else value.coerceIn(0.01f, 1f)
+    window.attributes = lp
+}
+
+private fun currentBrightness(activity: Activity?): Float {
+    val own = activity?.window?.attributes?.screenBrightness ?: -1f
+    if (own >= 0f) return own
+    return try {
+        android.provider.Settings.System.getInt(activity!!.contentResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS) / 255f
+    } catch (_: Exception) {
+        0.5f
+    }
+}
+
+/** Indicador de brilho/volume enquanto o dedo desliza. */
+@Composable
+private fun GestureIndicator(kind: Int, value: Float, modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color(0xAA000000))
+            .padding(horizontal = 12.dp, vertical = 14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            if (kind == 0) PlayerIcons.Brightness else PlayerIcons.Volume,
+            contentDescription = if (kind == 0) "Brilho" else "Volume",
+            tint = Color.White,
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.height(10.dp))
+        Box(
+            Modifier
+                .width(6.dp)
+                .height(120.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(Color(0x44FFFFFF)),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(value.coerceIn(0f, 1f))
+                    .background(Color.White),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Text("${Math.round(value * 100)}%", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+/** Ícones do Material Design (Apache 2.0) desenhados aqui para não depender da biblioteca grande de ícones. */
+private object PlayerIcons {
+    private fun icon(name: String, path: String) =
+        androidx.compose.ui.graphics.vector.ImageVector.Builder(
+            name = name,
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).addPath(
+            pathData = androidx.compose.ui.graphics.vector.addPathNodes(path),
+            fill = androidx.compose.ui.graphics.SolidColor(Color.White),
+        ).build()
+
+    val Subtitles = icon(
+        "Subtitles",
+        "M20,4H4c-1.1,0 -2,0.9 -2,2v12c0,1.1 0.9,2 2,2h16c1.1,0 2,-0.9 2,-2V6c0,-1.1 -0.9,-2 -2,-2zM4,12h4v2H4v-2zM14,18H4v-2h10v2zM20,18h-4v-2h4v2zM20,14H10v-2h10v2z",
+    )
+    val AspectRatio = icon(
+        "AspectRatio",
+        "M19,12h-2v3h-3v2h5v-5zM7,9h3L10,7L5,7v5h2L7,9zM21,3L3,3c-1.1,0 -2,0.9 -2,2v14c0,1.1 0.9,2 2,2h18c1.1,0 2,-0.9 2,-2L23,5c0,-1.1 -0.9,-2 -2,-2zM21,19.01L3,19.01L3,4.99h18v14.02z",
+    )
+    val Pip = icon(
+        "PictureInPicture",
+        "M19,11h-8v6h8v-6zM23,19L23,4.98C23,3.88 22.1,3 21,3L3,3c-1.1,0 -2,0.88 -2,1.98L1,19c0,1.1 0.9,2 2,2h18c1.1,0 2,-0.9 2,-2zM21,19.02L3,19.02L3,4.97h18v14.05z",
+    )
+    val Brightness = icon(
+        "Brightness",
+        "M20,8.69V4h-4.69L12,0.69 8.69,4H4v4.69L0.69,12 4,15.31V20h4.69L12,23.31 15.31,20H20v-4.69L23.31,12 20,8.69zM12,18c-3.31,0 -6,-2.69 -6,-6s2.69,-6 6,-6 6,2.69 6,6 -2.69,6 -6,6zM12,8c-2.21,0 -4,1.79 -4,4s1.79,4 4,4 4,-1.79 4,-4 -1.79,-4 -4,-4z",
+    )
+    val Volume = icon(
+        "VolumeUp",
+        "M3,9v6h4l5,5V4L7,9H3zM16.5,12c0,-1.77 -1.02,-3.29 -2.5,-4.03v8.05c1.48,-0.73 2.5,-2.25 2.5,-4.02zM14,3.23v2.06c2.89,0.86 5,3.54 5,6.71s-2.11,5.85 -5,6.71v2.06c4.01,-0.91 7,-4.49 7,-8.77s-2.99,-7.86 -7,-8.77z",
+    )
+    val OpenExternal = icon(
+        "OpenInNew",
+        "M19,19H5V5h7V3H5c-1.11,0 -2,0.9 -2,2v14c0,1.1 0.89,2 2,2h14c1.1,0 2,-0.9 2,-2v-7h-2v7zM14,3v2h3.59l-9.83,9.83 1.41,1.41L19,6.41V10h2V3h-7z",
+    )
 }
