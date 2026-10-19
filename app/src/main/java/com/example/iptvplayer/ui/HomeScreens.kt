@@ -336,7 +336,7 @@ fun HomeScreen(vm: MainViewModel) {
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 96.dp),
     ) {
-        item { ExpiryBanner(vm.account) { vm.accessRequest = AccessRequest.RENEW } }
+        item { ExpiryBanner(vm.account) }
         val hero = home.hero
         if (hero != null) item { HeroBanner(vm, hero) }
         if (vm.resume.isNotEmpty()) item { ContinueRow(vm) }
@@ -477,7 +477,7 @@ private fun HeroCard(vm: MainViewModel, entry: MediaEntry, details: Details?, in
 // Aviso de vencimento da assinatura (topo do Início)
 // ---------------------------------------------------------------------------
 @Composable
-private fun ExpiryBanner(account: AccountInfo?, onRenew: () -> Unit) {
+private fun ExpiryBanner(account: AccountInfo?) {
     val expSec = account?.expiresAtSec?.takeIf { it > 0L } ?: return
     val expMs = expSec * 1000L
     val leftMs = expMs - System.currentTimeMillis()
@@ -495,16 +495,11 @@ private fun ExpiryBanner(account: AccountInfo?, onRenew: () -> Unit) {
         else -> { text = "Vence em $days dias"; color = Color(0xFF46D369) }
     }
 
-    // Faltando 5 dias ou menos, o aviso vira um botão "Renovar".
-    val showRenew = days <= 5L
-    val shape = RoundedCornerShape(50)
     Row(
         Modifier
             .padding(horizontal = 16.dp, vertical = 4.dp)
-            .then(if (showRenew) Modifier.focusRing(shape, 2.dp) else Modifier)
-            .clip(shape)
+            .clip(RoundedCornerShape(50))
             .background(Palette.Surface)
-            .then(if (showRenew) Modifier.clickable(onClick = onRenew) else Modifier)
             .padding(horizontal = 12.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -512,19 +507,6 @@ private fun ExpiryBanner(account: AccountInfo?, onRenew: () -> Unit) {
         Spacer(Modifier.width(7.dp))
         Text(text, color = color, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         Text("  •  $date", color = Palette.TextSecondary, fontSize = 12.sp)
-        if (showRenew) {
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "Renovar",
-                color = Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .clip(shape)
-                    .background(Palette.Accent)
-                    .padding(horizontal = 10.dp, vertical = 2.dp),
-            )
-        }
     }
 }
 
@@ -698,12 +680,52 @@ fun MyListScreen(vm: MainViewModel) {
 @Composable
 fun SearchScreen(vm: MainViewModel) {
     val query = vm.query
-    val results = remember(query, vm.catalog) {
+    val type = vm.searchType
+    val category = vm.searchCategory
+    val minRating = vm.searchMinRating
+    val yearFilter = vm.searchYear
+    val filtersOn = vm.searchFiltersActive
+    var showFilters by remember { mutableStateOf(false) }
+
+    val results = remember(query, vm.catalog, type, category, minRating, yearFilter) {
         val q = query.trim().searchNormalize()
-        if (q.length < 2) {
+        if (q.length < 2 && !(type != null || category != null || minRating > 0 || yearFilter != 0)) {
             emptyList<MediaEntry>()
         } else {
-            vm.catalog.all.filter { it.searchKey.contains(q) }.take(240)
+            var list: List<MediaEntry> = when (type) {
+                MediaType.LIVE -> vm.catalog.live
+                MediaType.MOVIE -> vm.catalog.movies
+                MediaType.SERIES -> vm.catalog.series
+                null -> vm.catalog.all
+            }
+            if (q.length >= 2) list = list.filter { it.searchKey.contains(q) }
+            if (category != null) list = list.filter { it.category == category }
+            if (minRating > 0) {
+                list = list.filter { (ratingOf(it) ?: -1.0) >= minRating }
+            }
+            if (yearFilter != 0) {
+                list = list.filter {
+                    val y = it.year?.take(4)?.toIntOrNull()
+                    when (yearFilter) {
+                        1 -> y != null && y >= 2020
+                        2 -> y != null && y in 2010..2019
+                        3 -> y != null && y in 2000..2009
+                        else -> y != null && y < 2000
+                    }
+                }
+            }
+            // Sem texto: mostra os mais recentes primeiro.
+            if (q.length < 2) list = list.sortedByDescending { it.added }
+            list.take(240)
+        }
+    }
+
+    val categoriesForType = remember(vm.catalog, type) {
+        when (type) {
+            MediaType.LIVE -> vm.catalog.liveCategories
+            MediaType.MOVIE -> vm.catalog.movieCategories
+            MediaType.SERIES -> vm.catalog.seriesCategories
+            null -> (vm.catalog.movieCategories + vm.catalog.seriesCategories + vm.catalog.liveCategories).distinct()
         }
     }
 
@@ -717,14 +739,75 @@ fun SearchScreen(vm: MainViewModel) {
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item { Pill(if (showFilters) "Filtros ▲" else "Filtros ▼", filtersOn, accent = true) { showFilters = !showFilters } }
+            item { Pill("Tudo", type == null) { vm.searchType = null; vm.searchCategory = null } }
+            item { Pill("Canais", type == MediaType.LIVE) { vm.searchType = MediaType.LIVE; vm.searchCategory = null } }
+            item { Pill("Filmes", type == MediaType.MOVIE) { vm.searchType = MediaType.MOVIE; vm.searchCategory = null } }
+            item { Pill("Séries", type == MediaType.SERIES) { vm.searchType = MediaType.SERIES; vm.searchCategory = null } }
+            if (filtersOn) item { Pill("Limpar", false) { vm.clearSearchFilters() } }
+        }
+        if (showFilters) {
+            Text("Nota mínima", color = Palette.TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, top = 6.dp))
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item { Pill("Qualquer", minRating == 0) { vm.searchMinRating = 0 } }
+                item { Pill("6+", minRating == 6) { vm.searchMinRating = 6 } }
+                item { Pill("7+", minRating == 7) { vm.searchMinRating = 7 } }
+                item { Pill("8+", minRating == 8) { vm.searchMinRating = 8 } }
+            }
+            Text("Ano", color = Palette.TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, top = 6.dp))
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item { Pill("Qualquer", yearFilter == 0) { vm.searchYear = 0 } }
+                item { Pill("2020+", yearFilter == 1) { vm.searchYear = 1 } }
+                item { Pill("2010–2019", yearFilter == 2) { vm.searchYear = 2 } }
+                item { Pill("2000–2009", yearFilter == 3) { vm.searchYear = 3 } }
+                item { Pill("Antes de 2000", yearFilter == 4) { vm.searchYear = 4 } }
+            }
+            Text("Categoria", color = Palette.TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, top = 6.dp))
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item { Pill("Todas", category == null) { vm.searchCategory = null } }
+                items(categoriesForType) { name ->
+                    Pill(name, category == name) { vm.searchCategory = name }
+                }
+            }
+            if (type == MediaType.LIVE && (minRating > 0 || yearFilter != 0)) {
+                Text(
+                    "Canais ao vivo não têm nota nem ano.",
+                    color = Palette.TextMuted, fontSize = 11.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                )
+            }
+        }
         when {
-            query.trim().length < 2 ->
-                MessageBox("Digite pelo menos 2 letras", "A busca procura em canais, filmes e séries.")
+            query.trim().length < 2 && !filtersOn ->
+                MessageBox("Digite pelo menos 2 letras", "Ou use os filtros para explorar por tipo, nota, ano e categoria.")
             results.isEmpty() ->
-                MessageBox("Nenhum resultado para \"${query.trim()}\"")
+                MessageBox(
+                    if (query.trim().length >= 2) "Nenhum resultado para \"${query.trim()}\"" else "Nada encontrado com esses filtros",
+                    if (filtersOn) "Tente afrouxar os filtros." else null,
+                )
             else -> MediaGrid(entries = results, onOpen = { vm.open(it) }, favorites = vm.favorites, onFavorite = vm::toggleFavorite)
         }
     }
+}
+
+/** Nota do item (0 a 10). Aceita "7.5", "7,5" ou "7.5/10". Vazio ou 0 = sem nota. */
+private fun ratingOf(entry: MediaEntry): Double? {
+    val raw = entry.rating?.substringBefore('/')?.replace(',', '.')?.trim() ?: return null
+    val v = raw.toDoubleOrNull() ?: return null
+    return if (v > 0.0) v else null
 }
 
 // ---------------------------------------------------------------------------
@@ -938,7 +1021,7 @@ private fun EpgPane(vm: MainViewModel, channel: MediaEntry?, modifier: Modifier)
             if (loading) {
                 LinearProgressIndicator(Modifier.fillMaxWidth(), color = Palette.Accent)
             } else {
-                EpgList(programs, maxItems = 6)
+                EpgList(programs, maxItems = 6, channelName = channel.name, streamKey = channel.streamId)
             }
         }
     }

@@ -30,11 +30,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
+import com.example.iptvplayer.data.Reminders
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
@@ -544,7 +550,17 @@ fun MessageBox(title: String, subtitle: String? = null, modifier: Modifier = Mod
 // EPG (programação): usado no painel da aba "Ao vivo" e no player.
 // ---------------------------------------------------------------------------
 @Composable
-fun EpgList(programs: List<EpgProgram>, modifier: Modifier = Modifier, maxItems: Int = 4) {
+fun EpgList(
+    programs: List<EpgProgram>,
+    modifier: Modifier = Modifier,
+    maxItems: Int = 4,
+    /** Se informado, programas futuros ganham o sino de lembrete. */
+    channelName: String? = null,
+    streamKey: String = "",
+) {
+    val context = LocalContext.current
+    var reminded by remember { mutableStateOf(Reminders.load(context).map { it.id }.toSet()) }
+    val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val now = System.currentTimeMillis()
     val upcoming = programs.filter { it.endMs > now }.take(maxItems)
     Column(modifier) {
@@ -569,7 +585,47 @@ fun EpgList(programs: List<EpgProgram>, modifier: Modifier = Modifier, maxItems:
                         fontSize = 14.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
+                    if (channelName != null && p.startMs > now) {
+                        val rid = Reminders.idFor(streamKey, p.startMs)
+                        val on = rid in reminded
+                        val bellShape = RoundedCornerShape(50)
+                        Icon(
+                            Icons.Default.Notifications,
+                            contentDescription = if (on) "Remover lembrete" else "Lembrar deste programa",
+                            tint = if (on) Palette.Accent else Palette.TextMuted,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .focusRing(bellShape, 2.dp)
+                                .clip(bellShape)
+                                .clickable {
+                                    if (on) {
+                                        Reminders.remove(context, rid)
+                                        reminded = reminded - rid
+                                        Toast.makeText(context, "Lembrete removido", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                                            androidx.core.content.ContextCompat.checkSelfPermission(
+                                                context, android.Manifest.permission.POST_NOTIFICATIONS,
+                                            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                                        ) {
+                                            notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                        }
+                                        val ok = Reminders.add(context, Reminders.Item(rid, channelName, p.title, p.startMs))
+                                        if (ok) {
+                                            reminded = reminded + rid
+                                            Toast.makeText(
+                                                context,
+                                                "Você será avisado às ${formatClock(p.startMs - Reminders.LEAD_MS)}",
+                                                Toast.LENGTH_LONG,
+                                            ).show()
+                                        }
+                                    }
+                                }
+                                .padding(6.dp),
+                        )
+                    }
                 }
                 if (isNow) {
                     val total = (p.endMs - p.startMs).coerceAtLeast(1L).toFloat()

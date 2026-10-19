@@ -14,6 +14,7 @@ import com.example.iptvplayer.data.Details
 import com.example.iptvplayer.data.EpgProgram
 import com.example.iptvplayer.data.HomeContent
 import com.example.iptvplayer.data.HomeRow
+import com.example.iptvplayer.data.M3u
 import com.example.iptvplayer.data.MediaEntry
 import com.example.iptvplayer.data.MediaType
 import com.example.iptvplayer.data.PlayKind
@@ -62,12 +63,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var errorMessage by mutableStateOf<String?>(null)
         private set
-    var showLogin by mutableStateOf(!store.hasCredentials)
+    var showLogin by mutableStateOf(!store.hasSource)
     var showSettings by mutableStateOf(false)
-
-    /** Pedido aberto (teste / assinar / renovar) e usuário+senha para pré-preencher o login. */
-    var accessRequest by mutableStateOf<com.example.iptvplayer.ui.AccessRequest?>(null)
-    var loginPrefill by mutableStateOf<Pair<String, String>?>(null)
 
     // ---------- Navegação ----------
     var tab by mutableStateOf(NavTab.HOME)
@@ -110,6 +107,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var bufferMode by mutableStateOf(store.bufferMode)
         private set
+    var frameRateMode by mutableStateOf(store.frameRateMode)
+        private set
+
+    // ---------- Filtros da busca ----------
+    var searchType by mutableStateOf<MediaType?>(null)
+    var searchCategory by mutableStateOf<String?>(null)
+    /** Nota mínima (0 = qualquer). */
+    var searchMinRating by mutableStateOf(0)
+    /** 0 = qualquer ano, 1 = 2020+, 2 = 2010-2019, 3 = 2000-2009, 4 = antes de 2000. */
+    var searchYear by mutableStateOf(0)
+
+    val searchFiltersActive: Boolean
+        get() = searchType != null || searchCategory != null || searchMinRating > 0 || searchYear != 0
+
+    fun clearSearchFilters() {
+        searchType = null
+        searchCategory = null
+        searchMinRating = 0
+        searchYear = 0
+    }
 
     // ---------- Controle parental ----------
     /** Catálogo completo (sem filtro). `catalog` é a versão exibida. */
@@ -125,8 +142,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var nextUp by mutableStateOf<PlayRequest?>(null)
         private set
 
+    /** true quando a conta é uma lista M3U (e não Xtream Codes). */
+    var isM3u by mutableStateOf(store.isM3u)
+        private set
+    /** M3U: id do item -> endereço direto do vídeo. */
+    private var m3uUrls: Map<String, String> = emptyMap()
+
     init {
-        if (store.hasCredentials) connect(store.server, store.user, store.password)
+        if (store.isM3u) connectM3u(store.m3uUrl)
+        else if (store.hasCredentials) connect(store.server, store.user, store.password)
     }
 
     // ---------------------------------------------------------------------
@@ -235,9 +259,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
                 api = client
                 account = acc
+                isM3u = false
+                m3uUrls = emptyMap()
                 catalog = shown
                 home = built
                 detailsCache.clear()
+                store.sourceType = "xtream"
+                store.m3uUrl = ""
                 store.saveLogin(client.baseUrl, user.trim(), pass)
                 showLogin = false
                 showSettings = false
@@ -255,9 +283,50 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Entra com uma lista M3U/M3U8 (link). */
+    fun connectM3u(url: String, keepOnError: Boolean = false) {
+        if (loading) return
+        viewModelScope.launch {
+            loading = true
+            errorMessage = null
+            try {
+                val result = withContext(Dispatchers.IO) { M3u.load(url) }
+                val cat = result.catalog
+                if (cat.isEmpty) throw IOException("Nenhum conteúdo encontrado nessa lista.")
+                fullCatalog = cat
+                val shown = filteredCatalog(cat)
+                val built = withContext(Dispatchers.Default) { buildHome(shown) }
+
+                api = null
+                account = null
+                isM3u = true
+                m3uUrls = result.urls
+                catalog = shown
+                home = built
+                detailsCache.clear()
+                for ((sid, d) in result.details) detailsCache["series:$sid"] = d
+                store.sourceType = "m3u"
+                store.m3uUrl = url.trim()
+                showLogin = false
+                showSettings = false
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: OutOfMemoryError) {
+                errorMessage = "Lista grande demais para a memória deste aparelho."
+                if (!(keepOnError && !catalog.isEmpty)) showLogin = true
+            } catch (e: Exception) {
+                errorMessage = friendly(e)
+                if (!(keepOnError && !catalog.isEmpty)) showLogin = true
+            } finally {
+                loading = false
+            }
+        }
+    }
+
     /** Recarrega o catálogo com a conta salva, mantendo o que já está na tela se falhar. */
     fun reload() {
-        connect(store.server, store.user, store.password, keepOnError = true)
+        if (store.isM3u) connectM3u(store.m3uUrl, keepOnError = true)
+        else connect(store.server, store.user, store.password, keepOnError = true)
     }
 
     fun logout() {
@@ -267,6 +336,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         fullCatalog = Catalog()
         catalog = Catalog()
         home = HomeContent()
+        isM3u = false
+        m3uUrls = emptyMap()
+        store.sourceType = "xtream"
         adultUnlocked = false
         nextUp = null
         detailsCache.clear()
@@ -516,12 +588,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         store.bufferMode = value
     }
 
+    fun updateFrameRateMode(value: Int) {
+        frameRateMode = value
+        store.frameRateMode = value
+    }
+
     fun updateLiveFormat(value: String) {
         liveFormat = value
         store.liveFormat = value
     }
 
     fun urlFor(request: PlayRequest): String {
+        if (isM3u) return m3uUrls[request.refId] ?: ""
         val client = api ?: return ""
         return when (request.kind) {
             PlayKind.LIVE -> client.liveUrl(request.refId, request.extension)

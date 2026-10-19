@@ -80,8 +80,33 @@ class Store(context: Context) {
             else secure.edit().putString("parental_pin", value).apply()
         }
 
+    /** Troca de taxa de quadros da tela: 0 = automático, 1 = desligado, 2 = forçar (Android 12+). */
+    var frameRateMode: Int
+        get() = plain.getInt("frame_rate_mode", 0)
+        set(value) { plain.edit().putInt("frame_rate_mode", value).apply() }
+
+    /** "xtream" (padrão) ou "m3u". */
+    var sourceType: String
+        get() = plain.getString("source_type", "xtream") ?: "xtream"
+        set(value) { plain.edit().putString("source_type", value).apply() }
+
+    /** URL da lista M3U. Pode conter usuário e senha, por isso fica no armazenamento seguro. */
+    var m3uUrl: String
+        get() = secure.getString("m3u_url", "") ?: ""
+        set(value) {
+            if (value.isEmpty()) secure.edit().remove("m3u_url").apply()
+            else secure.edit().putString("m3u_url", value).apply()
+        }
+
     val hasCredentials: Boolean
         get() = server.isNotBlank() && user.isNotBlank() && password.isNotBlank()
+
+    val isM3u: Boolean
+        get() = sourceType == "m3u" && m3uUrl.isNotBlank()
+
+    /** Há uma conta (Xtream) ou lista (M3U) salva para entrar sozinho. */
+    val hasSource: Boolean
+        get() = isM3u || hasCredentials
 
     fun saveLogin(server: String, user: String, password: String) {
         this.server = server
@@ -91,6 +116,7 @@ class Store(context: Context) {
 
     fun clearPassword() {
         secure.edit().remove("password").apply()
+        m3uUrl = ""
     }
 
     // ---------- Favoritos ("Minha lista") ----------

@@ -17,7 +17,6 @@ import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.Icon
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -45,7 +44,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -95,15 +93,17 @@ fun LoginScreen(vm: MainViewModel) {
     var server by remember { mutableStateOf(if (fixedServers) "" else vm.store.server) }
     var user by remember { mutableStateOf(vm.store.user) }
     var pass by remember { mutableStateOf(vm.store.password) }
-    val canSubmit = (fixedServers || server.isNotBlank()) && user.isNotBlank() && pass.isNotBlank() && !vm.loading
-
-    // Depois de pedir teste/assinatura, já deixa usuário e senha escolhidos no formulário.
-    LaunchedEffect(vm.loginPrefill) {
-        vm.loginPrefill?.let { (u, p) -> user = u; pass = p; vm.loginPrefill = null }
+    var useM3u by remember { mutableStateOf(vm.store.sourceType == "m3u") }
+    var m3uLink by remember { mutableStateOf("") }
+    val canSubmit = if (useM3u) {
+        m3uLink.isNotBlank() && !vm.loading
+    } else {
+        (fixedServers || server.isNotBlank()) && user.isNotBlank() && pass.isNotBlank() && !vm.loading
     }
 
     fun submit() {
-        if (canSubmit) vm.connect(server, user, pass)
+        if (!canSubmit) return
+        if (useM3u) vm.connectM3u(m3uLink) else vm.connect(server, user, pass)
     }
 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -116,12 +116,25 @@ fun LoginScreen(vm: MainViewModel) {
         ) {
             Text("VORTEX PLAY", color = Palette.Accent, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
             Text(
-                "Bem-vindo! Acesse com o usuário e a senha da sua assinatura.",
+                if (useM3u) "Cole o link da sua lista M3U/M3U8." else "Entre com os dados do seu serviço (Xtream Codes).",
                 color = Palette.TextSecondary,
                 fontSize = 14.sp,
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Pill("Usuário e senha", !useM3u) { useM3u = false }
+                Pill("Lista M3U (link)", useM3u) { useM3u = true }
+            }
 
-            if (!fixedServers || otherServer) OutlinedTextField(
+            if (useM3u) OutlinedTextField(
+                value = m3uLink,
+                onValueChange = { m3uLink = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Link da lista (http://... .m3u)") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { submit() }),
+            )
+            if (!useM3u && (!fixedServers || otherServer)) OutlinedTextField(
                 value = server,
                 onValueChange = { server = it },
                 modifier = Modifier.fillMaxWidth(),
@@ -129,7 +142,7 @@ fun LoginScreen(vm: MainViewModel) {
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
             )
-            OutlinedTextField(
+            if (!useM3u) OutlinedTextField(
                 value = user,
                 onValueChange = { user = it },
                 modifier = Modifier.fillMaxWidth(),
@@ -137,7 +150,7 @@ fun LoginScreen(vm: MainViewModel) {
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
             )
-            OutlinedTextField(
+            if (!useM3u) OutlinedTextField(
                 value = pass,
                 onValueChange = { pass = it },
                 modifier = Modifier.fillMaxWidth(),
@@ -148,13 +161,18 @@ fun LoginScreen(vm: MainViewModel) {
                 keyboardActions = KeyboardActions(onDone = { submit() }),
             )
 
-            if (fixedServers) {
+            if (fixedServers && !useM3u) {
                 Text(
                     if (otherServer) "Usar o servidor padrão" else "Usar outro servidor",
                     color = Palette.TextMuted,
                     fontSize = 12.sp,
                     modifier = Modifier.clickable { otherServer = !otherServer; if (!otherServer) server = "" },
                 )
+            }
+
+            if (!useM3u) {
+                Text("Formato dos canais ao vivo", color = Palette.TextSecondary, fontSize = 12.sp)
+                LiveFormatPills(vm)
             }
 
             val message = vm.errorMessage
@@ -171,8 +189,6 @@ fun LoginScreen(vm: MainViewModel) {
             if (vm.loading) {
                 LinearProgressIndicator(Modifier.fillMaxWidth(), color = Palette.Accent)
             }
-
-            AccessOffers { vm.accessRequest = it }
 
             Text(NOTICE, color = Palette.TextMuted, fontSize = 11.sp)
         }
@@ -298,7 +314,7 @@ fun SettingsScreen(vm: MainViewModel) {
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        vm.store.user.trim().take(1).uppercase().ifEmpty { "?" },
+                        if (vm.isM3u) "M" else vm.store.user.trim().take(1).uppercase().ifEmpty { "?" },
                         color = Color.White,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
@@ -307,11 +323,17 @@ fun SettingsScreen(vm: MainViewModel) {
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Conta", color = Palette.TextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                    Text(vm.store.user, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text(
+                        if (vm.isM3u) "Lista M3U" else vm.store.user,
+                        color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                    )
                 }
             }
-            InfoRow("Servidor") {
-                Text(vm.store.server, color = Color.White, fontSize = 14.sp, maxLines = 1)
+            InfoRow(if (vm.isM3u) "Origem" else "Servidor") {
+                Text(
+                    if (vm.isM3u) (android.net.Uri.parse(vm.store.m3uUrl).host ?: "lista") else vm.store.server,
+                    color = Color.White, fontSize = 14.sp, maxLines = 1,
+                )
             }
             if (account != null) {
                 InfoRow("Status") {
@@ -402,6 +424,17 @@ fun SettingsScreen(vm: MainViewModel) {
                 color = Palette.TextMuted,
                 fontSize = 11.sp,
             )
+            Text("Taxa de quadros da tela (24/30/60 Hz)", color = Palette.TextSecondary, fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Pill("Automático", vm.frameRateMode == 0) { vm.updateFrameRateMode(0) }
+                Pill("Desligado", vm.frameRateMode == 1) { vm.updateFrameRateMode(1) }
+                Pill("Forçar", vm.frameRateMode == 2) { vm.updateFrameRateMode(2) }
+            }
+            Text(
+                "Casa a tela com o vídeo (ex.: 24 Hz nos filmes) para evitar engasgos nas imagens. \"Forçar\" exige Android 12+ e pode piscar a tela ao trocar. Em TV, ative também \"Combinar taxa de quadros\" nos ajustes do aparelho. Vale a partir do próximo vídeo.",
+                color = Palette.TextMuted,
+                fontSize = 11.sp,
+            )
             Text("Próximo episódio automático", color = Palette.TextSecondary, fontSize = 12.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Pill("Desligado", !vm.autoNext) { vm.updateAutoNext(false) }
@@ -445,13 +478,6 @@ fun SettingsScreen(vm: MainViewModel) {
         }
 
         // ---- Botões
-        StyledButton(
-            text = "Renovar assinatura",
-            icon = Icons.Default.ShoppingCart,
-            primary = false,
-            modifier = Modifier.fillMaxWidth(),
-            onClick = { vm.accessRequest = AccessRequest.RENEW },
-        )
         StyledButton(
             text = if (vm.loading) "Atualizando…" else "Atualizar catálogo",
             icon = Icons.Default.Refresh,
