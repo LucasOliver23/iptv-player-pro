@@ -1,6 +1,12 @@
 package com.example.iptvplayer.ui
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -52,6 +58,7 @@ import com.example.iptvplayer.data.Details
 import com.example.iptvplayer.data.MediaEntry
 import com.example.iptvplayer.data.MediaType
 import com.example.iptvplayer.data.SeriesEpisode
+import com.example.iptvplayer.data.TmdbInfo
 
 @Composable
 fun DetailsScreen(vm: MainViewModel, entry: MediaEntry) {
@@ -59,10 +66,13 @@ fun DetailsScreen(vm: MainViewModel, entry: MediaEntry) {
 
     var details by remember(entry.id) { mutableStateOf<Details?>(null) }
     var done by remember(entry.id) { mutableStateOf(false) }
+    var tmdb by remember(entry.id) { mutableStateOf<TmdbInfo?>(null) }
     LaunchedEffect(entry.id) {
         details = vm.details(entry)
         done = true
     }
+    LaunchedEffect(entry.id) { tmdb = vm.tmdb(entry) }
+    val context = LocalContext.current
     var seasonIndex by remember(entry.id) { mutableIntStateOf(0) }
 
     val isSeries = entry.type == MediaType.SERIES
@@ -99,11 +109,13 @@ fun DetailsScreen(vm: MainViewModel, entry: MediaEntry) {
             DetailsHeader(
                 entry = entry,
                 details = details,
+                tmdb = tmdb,
                 inList = inList,
                 primaryLabel = primaryLabel,
                 onPrimary = onPrimary,
                 onToggleList = { vm.toggleFavorite(entry) },
                 onBack = { vm.detail = null },
+                onTrailer = tmdb?.trailerKey?.let { key -> { openTrailer(context, key) } },
             )
         }
 
@@ -113,7 +125,7 @@ fun DetailsScreen(vm: MainViewModel, entry: MediaEntry) {
                     LinearProgressIndicator(Modifier.fillMaxWidth(), color = Palette.Accent)
                     Spacer(Modifier.height(10.dp))
                 }
-                val plot = details?.plot ?: entry.plot
+                val plot = details?.plot ?: entry.plot ?: tmdb?.overview
                 if (!plot.isNullOrBlank()) {
                     Text(plot, color = Color(0xFFE6E6EA), fontSize = 14.sp)
                     Spacer(Modifier.height(10.dp))
@@ -122,6 +134,55 @@ fun DetailsScreen(vm: MainViewModel, entry: MediaEntry) {
                 InfoLine("Elenco", details?.cast)
                 InfoLine("Direção", details?.director)
                 InfoLine("Duração", details?.duration)
+            }
+        }
+
+        val cast = tmdb?.cast.orEmpty()
+        if (cast.isNotEmpty()) {
+            item {
+                Text(
+                    "Elenco",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(start = 24.dp, top = 8.dp, bottom = 6.dp),
+                )
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(cast) { member ->
+                        Column(Modifier.width(84.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Artwork(
+                                member.photo,
+                                member.name,
+                                Modifier.size(72.dp).clip(CircleShape),
+                                alignment = Alignment.TopCenter,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                member.name,
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                            )
+                            if (!member.character.isNullOrBlank()) {
+                                Text(
+                                    member.character,
+                                    color = Palette.TextMuted,
+                                    fontSize = 10.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
             }
         }
 
@@ -164,15 +225,17 @@ fun DetailsScreen(vm: MainViewModel, entry: MediaEntry) {
 private fun DetailsHeader(
     entry: MediaEntry,
     details: Details?,
+    tmdb: TmdbInfo?,
     inList: Boolean,
     primaryLabel: String,
     onPrimary: () -> Unit,
     onToggleList: () -> Unit,
     onBack: () -> Unit,
+    onTrailer: (() -> Unit)?,
 ) {
     Box(Modifier.fillMaxWidth()) {
         Artwork(
-            details?.backdrop ?: entry.poster ?: details?.poster,
+            tmdb?.backdrop ?: details?.backdrop ?: entry.poster ?: details?.poster,
             entry.name,
             Modifier.fillMaxWidth().height(340.dp),
             alignment = Alignment.TopCenter,
@@ -201,7 +264,7 @@ private fun DetailsHeader(
             verticalAlignment = Alignment.Bottom,
         ) {
             Artwork(
-                entry.poster ?: details?.poster,
+                tmdb?.poster ?: entry.poster ?: details?.poster,
                 entry.name,
                 Modifier.width(130.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(8.dp)),
             )
@@ -216,7 +279,7 @@ private fun DetailsHeader(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(4.dp))
-                Text(detailsMeta(entry, details), color = Palette.TextSecondary, fontSize = 13.sp)
+                Text(detailsMeta(entry, details, tmdb), color = Palette.TextSecondary, fontSize = 13.sp)
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     ActionButton(primaryLabel, onPrimary, primary = true, icon = Icons.Default.PlayArrow)
@@ -225,15 +288,30 @@ private fun DetailsHeader(
                         onToggleList,
                         icon = if (inList) Icons.Default.Check else Icons.Default.Add,
                     )
+                    if (onTrailer != null) ActionButton("Trailer", onTrailer, icon = Icons.Default.PlayArrow)
                 }
             }
         }
     }
 }
 
-private fun detailsMeta(entry: MediaEntry, details: Details?): String = listOfNotNull(
+private fun openTrailer(context: Context, key: String) {
+    val app = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:$key")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    val web = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=$key")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+        context.startActivity(app)
+    } catch (e: Exception) {
+        try {
+            context.startActivity(web)
+        } catch (e2: Exception) {
+            Toast.makeText(context, "Não há app para abrir o trailer.", Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+private fun detailsMeta(entry: MediaEntry, details: Details?, tmdb: TmdbInfo?): String = listOfNotNull(
     (details?.year ?: entry.year)?.takeIf { it.isNotBlank() },
-    (details?.rating ?: entry.rating)?.takeIf { it.isNotBlank() && it != "0" }?.let { "★ $it" },
+    (details?.rating ?: entry.rating ?: tmdb?.rating)?.takeIf { it.isNotBlank() && it != "0" }?.let { "★ $it" },
     entry.category,
 ).joinToString("  •  ")
 

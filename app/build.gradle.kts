@@ -21,6 +21,10 @@ android {
         versionCode = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 1
         versionName = (project.findProperty("appVersionName") as String?) ?: "1.0"
 
+        // Chave gratuita do TMDB (themoviedb.org). Vem do Secret TMDB_KEY no GitHub; sem ela o app só não mostra os extras.
+        val tmdbKey = System.getenv("TMDB_KEY") ?: (project.findProperty("tmdbKey") as String?) ?: ""
+        buildConfigField("String", "TMDB_KEY", "\"${tmdbKey.trim()}\"")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
         vectorDrawables {
@@ -64,6 +68,7 @@ android {
     }
 
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 }

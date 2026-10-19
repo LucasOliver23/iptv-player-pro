@@ -13,6 +13,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.TimeZone
 
 const val USER_AGENT = "IPTVPlayerPro/4.0 (Android; Media3)"
 private const val OTHER = "Outros"
@@ -52,6 +53,17 @@ class XtreamApi(server: String, user: String, pass: String) {
     fun liveUrl(streamId: String, ext: String) = "$baseUrl/live/$encUser/$encPass/$streamId.$ext"
     fun movieUrl(streamId: String, ext: String) = "$baseUrl/movie/$encUser/$encPass/$streamId.$ext"
     fun episodeUrl(episodeId: String, ext: String) = "$baseUrl/series/$encUser/$encPass/$episodeId.$ext"
+
+    /** Fuso do servidor (vem do login). O catch-up pede o horário no fuso do painel. */
+    @Volatile
+    var serverTimeZone: TimeZone = TimeZone.getTimeZone("UTC")
+
+    /** Catch-up (timeshift): .../timeshift/usuario/senha/MINUTOS/AAAA-MM-DD:HH-MM/ID.ts */
+    fun timeshiftUrl(streamId: String, startMs: Long, minutes: Int): String {
+        val fmt = SimpleDateFormat("yyyy-MM-dd:HH-mm", Locale.US)
+        fmt.timeZone = serverTimeZone
+        return "$baseUrl/timeshift/$encUser/$encPass/$minutes/${fmt.format(java.util.Date(startMs))}/$streamId.ts"
+    }
 
     // ---------- HTTP ----------
 
@@ -98,6 +110,9 @@ class XtreamApi(server: String, user: String, pass: String) {
         val info = root.optJSONObject("user_info")
             ?: throw IOException("Resposta inválida do servidor. Confira a URL e a porta.")
         if (info.str("auth") != "1") throw IOException("Usuário ou senha inválidos.")
+        root.optJSONObject("server_info")?.str("timezone")?.let { tz ->
+            serverTimeZone = TimeZone.getTimeZone(tz)
+        }
         val status = info.str("status") ?: "Active"
         if (!status.equals("Active", ignoreCase = true)) throw IOException("Conta com status: $status.")
         AccountInfo(
@@ -179,6 +194,7 @@ class XtreamApi(server: String, user: String, pass: String) {
                     category = o.str("category_id")?.let { cats[it] } ?: OTHER,
                     poster = o.str("stream_icon"),
                     added = o.str("added")?.toLongOrNull() ?: 0L,
+                    archiveDays = if (o.str("tv_archive") == "1") (o.str("tv_archive_duration")?.toIntOrNull() ?: 0) else 0,
                 )
             )
         }
@@ -346,6 +362,37 @@ class XtreamApi(server: String, user: String, pass: String) {
                     val start = timestampMs(o, "start_timestamp", "start") ?: continue
                     val end = timestampMs(o, "stop_timestamp", "end") ?: continue
                     out.add(EpgProgram(decodeText(o.str("title")), decodeText(o.str("description")), start, end))
+                }
+            }
+            out.sortedBy { it.startMs }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /**
+     * Programação completa do canal, passado e futuro (get_simple_data_table).
+     * Traz "has_archive" indicando se o painel guardou a gravação do programa.
+     */
+    suspend fun fullEpg(streamId: String): List<EpgProgram> = withContext(Dispatchers.IO) {
+        try {
+            val raw = httpGet(endpoint("get_simple_data_table", "stream_id=${Uri.encode(streamId)}"))
+            val arr = JSONObject(raw).optJSONArray("epg_listings")
+            val out = ArrayList<EpgProgram>()
+            if (arr != null) {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val start = timestampMs(o, "start_timestamp", "start") ?: continue
+                    val end = timestampMs(o, "stop_timestamp", "end") ?: continue
+                    out.add(
+                        EpgProgram(
+                            decodeText(o.str("title")),
+                            decodeText(o.str("description")),
+                            start,
+                            end,
+                            hasArchive = o.str("has_archive")?.let { it == "1" } ?: true,
+                        )
+                    )
                 }
             }
             out.sortedBy { it.startMs }

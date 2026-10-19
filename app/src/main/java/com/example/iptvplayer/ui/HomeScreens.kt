@@ -832,6 +832,11 @@ fun LiveScreen(vm: MainViewModel) {
     val wide = LocalConfiguration.current.screenWidthDp >= 700
 
     Column(Modifier.fillMaxSize()) {
+        if (!vm.isM3u) {
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
+                ActionButton("Guia de programação", { vm.showGuide = true })
+            }
+        }
         SearchField(
             value = vm.liveQuery,
             onValueChange = { vm.liveQuery = it },

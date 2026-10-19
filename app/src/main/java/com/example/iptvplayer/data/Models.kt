@@ -4,7 +4,7 @@ import java.text.Normalizer
 
 enum class MediaType { LIVE, MOVIE, SERIES }
 
-enum class PlayKind { LIVE, MOVIE, EPISODE }
+enum class PlayKind { LIVE, MOVIE, EPISODE, CATCHUP }
 
 private val DIACRITICS = Regex("\\p{Mn}+")
 
@@ -29,6 +29,8 @@ data class MediaEntry(
     val rating: String? = null,
     val added: Long = 0L,
     val extension: String = "",
+    /** Dias de arquivo (catch-up) do canal; 0 = sem arquivo. */
+    val archiveDays: Int = 0,
 ) {
     val searchKey: String = name.searchNormalize()
 }
@@ -81,6 +83,8 @@ data class EpgProgram(
     val description: String,
     val startMs: Long,
     val endMs: Long,
+    /** O painel guarda a gravação deste programa (catch-up). */
+    val hasArchive: Boolean = false,
 )
 
 data class AccountInfo(
@@ -100,6 +104,8 @@ data class PlayRequest(
     val image: String? = null,
     val seriesId: String? = null, // preenchido só para episódios
     val startPositionMs: Long = 0L,
+    val catchupStartMs: Long = 0L, // catch-up: início do programa
+    val catchupMinutes: Int = 0,   // catch-up: duração em minutos
 )
 
 /** Item de "Continuar assistindo". */

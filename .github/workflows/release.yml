@@ -50,6 +50,7 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          TMDB_KEY: ${{ secrets.TMDB_KEY }}
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon -PappVersionName="$VERSION" -PappVersionCode="${{ github.run_number }}"

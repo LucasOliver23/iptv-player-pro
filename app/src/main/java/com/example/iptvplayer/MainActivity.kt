@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.iptvplayer.ui.DetailsScreen
+import com.example.iptvplayer.ui.GuideScreen
 import com.example.iptvplayer.ui.HomeShell
 import com.example.iptvplayer.ui.IptvTheme
 import com.example.iptvplayer.ui.LoginScreen
@@ -74,6 +75,7 @@ private fun App(vm: MainViewModel) {
                 vm.showLogin -> LoginScreen(vm)
                 vm.catalog.isEmpty -> SplashScreen()
                 detail != null -> DetailsScreen(vm, detail)
+                vm.showGuide -> GuideScreen(vm)
                 else -> HomeShell(vm)
             }
             UpdateDialog(vm)

@@ -13,6 +13,8 @@ import com.example.iptvplayer.data.Catalog
 import com.example.iptvplayer.data.Details
 import com.example.iptvplayer.data.EpgProgram
 import com.example.iptvplayer.data.HomeContent
+import com.example.iptvplayer.data.Tmdb
+import com.example.iptvplayer.data.TmdbInfo
 import com.example.iptvplayer.data.HomeRow
 import com.example.iptvplayer.data.M3u
 import com.example.iptvplayer.data.MediaEntry
@@ -51,6 +53,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val store = Store(app)
     private var api: XtreamApi? = null
     private val detailsCache = HashMap<String, Details>()
+    private val tmdbCache = HashMap<String, TmdbInfo?>()
+    private val epgCache = HashMap<String, List<EpgProgram>>()
+    var showGuide by mutableStateOf(false)
 
     // ---------- Sessão / catálogo ----------
     var catalog by mutableStateOf(Catalog())
@@ -263,7 +268,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 m3uUrls = emptyMap()
                 catalog = shown
                 home = built
-                detailsCache.clear()
+                detailsCache.clear(); epgCache.clear()
                 store.sourceType = "xtream"
                 store.m3uUrl = ""
                 store.saveLogin(client.baseUrl, user.trim(), pass)
@@ -303,7 +308,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 m3uUrls = result.urls
                 catalog = shown
                 home = built
-                detailsCache.clear()
+                detailsCache.clear(); epgCache.clear()
                 for ((sid, d) in result.details) detailsCache["series:$sid"] = d
                 store.sourceType = "m3u"
                 store.m3uUrl = url.trim()
@@ -341,9 +346,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         store.sourceType = "xtream"
         adultUnlocked = false
         nextUp = null
-        detailsCache.clear()
+        detailsCache.clear(); epgCache.clear()
         detail = null
         playing = null
+        showGuide = false
         showSettings = false
         errorMessage = null
         tab = NavTab.HOME
@@ -476,6 +482,50 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return result
     }
 
+    /** Capa HD, trailer e elenco (TMDB). Null se não há chave ou o título não foi achado. */
+    suspend fun tmdb(entry: MediaEntry): TmdbInfo? {
+        if (!Tmdb.enabled) return null
+        if (tmdbCache.containsKey(entry.id)) return tmdbCache[entry.id]
+        val info = Tmdb.lookup(entry)
+        tmdbCache[entry.id] = info
+        return info
+    }
+
+    /** Grade: programação completa de um canal (passado e futuro), com cache. */
+    suspend fun fullEpg(streamId: String): List<EpgProgram> {
+        epgCache[streamId]?.let { return it }
+        val list = api?.fullEpg(streamId) ?: emptyList()
+        if (list.isNotEmpty()) epgCache[streamId] = list
+        return list
+    }
+
+    /** Canais mostrados na grade: os mesmos da aba Ao vivo (categoria/busca/favoritos). */
+    fun guideChannels(): List<MediaEntry> = currentLiveList().take(300)
+
+    /** Toca um canal da grade mantendo a lista para trocar de canal. */
+    fun playLiveFrom(entry: MediaEntry, list: List<MediaEntry>) {
+        zapList = list
+        playEntry(entry)
+    }
+
+    /** Catch-up: assiste um programa que já passou (ou o começo do que está no ar). */
+    fun playCatchup(channel: MediaEntry, program: EpgProgram) {
+        val minutes = (((program.endMs - program.startMs) / 60_000L).toInt() + 2).coerceAtLeast(5)
+        val clock = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(program.startMs))
+        nextUp = null
+        playing = PlayRequest(
+            key = "catchup:${channel.streamId}:${program.startMs}",
+            kind = PlayKind.CATCHUP,
+            refId = channel.streamId,
+            extension = "ts",
+            title = channel.name,
+            subtitle = "$clock • ${program.title}",
+            image = channel.poster,
+            catchupStartMs = program.startMs,
+            catchupMinutes = minutes,
+        )
+    }
+
     suspend fun shortEpg(streamId: String, limit: Int = 6): List<EpgProgram> =
         api?.shortEpg(streamId, limit) ?: emptyList()
 
@@ -605,6 +655,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             PlayKind.LIVE -> client.liveUrl(request.refId, request.extension)
             PlayKind.MOVIE -> client.movieUrl(request.refId, request.extension)
             PlayKind.EPISODE -> client.episodeUrl(request.refId, request.extension)
+            PlayKind.CATCHUP -> client.timeshiftUrl(request.refId, request.catchupStartMs, request.catchupMinutes)
         }
     }
 
@@ -656,7 +707,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun saveProgress(request: PlayRequest, positionMs: Long, durationMs: Long) {
         // Alguns servidores IPTV não informam a duração (vem negativa): ainda assim guardamos o ponto.
         val duration = if (durationMs > 0L) durationMs else 0L
-        if (request.kind == PlayKind.LIVE || positionMs < 5_000L) return
+        if (request.kind == PlayKind.LIVE || request.kind == PlayKind.CATCHUP || positionMs < 5_000L) return
         if (duration > 0L && positionMs > duration * 0.95) {
             removeResume(request.key)
             return
@@ -679,7 +730,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Chamado pelo player quando o vídeo termina. */
     fun onPlaybackEnded(request: PlayRequest) {
-        if (request.kind == PlayKind.LIVE) return
+        if (request.kind == PlayKind.LIVE || request.kind == PlayKind.CATCHUP) {
+            if (request.kind == PlayKind.CATCHUP) playing = null
+            return
+        }
         removeResume(request.key)
         viewModelScope.launch {
             val next = if (request.kind == PlayKind.EPISODE && autoNext) nextEpisode(request) else null
