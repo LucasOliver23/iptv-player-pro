@@ -189,7 +189,7 @@ class Store(context: Context) {
          */
         val DEFAULT_SERVERS: List<String> = listOf(
             "http://xtrem7.sbs",
-            "http://tlfp.fun:80",
+            "http://benck21.sbs:80",
             "http://telefunplay.xyz:80",
         )
 
