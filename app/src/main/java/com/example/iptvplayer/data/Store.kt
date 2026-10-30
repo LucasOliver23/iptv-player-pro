@@ -188,7 +188,7 @@ class Store(context: Context) {
          * Deixe a lista vazia para voltar a pedir o endereço na tela de login.
          */
         val DEFAULT_SERVERS: List<String> = listOf(
-            "http://cdntp.sbs",
+            "http://xtrem7.sbs",
             "http://tlfp.fun:80",
             "http://telefunplay.xyz:80",
         )
